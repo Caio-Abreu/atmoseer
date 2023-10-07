@@ -2,8 +2,6 @@ from netCDF4 import Dataset
 import os
 import numpy as np
 import time
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import glob
 import pandas as pd
 import pyarrow as pa
@@ -11,37 +9,30 @@ import pyarrow.parquet as pq
 
 import argparse
 import sys
+
 from globals import *
 from util import *
-import util as util
 
-
-def pre_process_tpw_product(path, station_id):
+def read_and_process_files(files, station_id):
     """
-    Compute the precipitable water vapor (PWV) at ``station_id`` at zenith or in direction of
-    ``line_of_sight`` using the Total Precipitable Water (TPW) product by NOAA.
+    Read and process a batch of NetCDF files containing TPW data.
 
     Args:
-        path (str): Working directory with GOES-R files in it
-        station_id (str): {"A652", "San Pedro Martir", "Other"} The input "Other" leads to a dialog window 
-            where the user has to enter the latitude and longitude (in degrees) of the station_id of interest.
+        files (list of str): A list of file paths to NetCDF files.
+        station_id (str): The station ID for processing data.
 
     Returns:
-        parquet file
+        tuple: A tuple containing lists of dates, X, Y, and TPW values.
+            - dates (list of str): Date and time values.
+            - TPW (list of float or None): Total Precipitable Water values.
     """
-
-    # navigate to directory with .nc data files
-    os.chdir(str(path))
-    nc_files = glob.glob('*OR_ABI-L2-TPWF*')
-    nc_files = sorted(nc_files)
     g16_data_file = []
     g16nc = []
     xscan = []
     yscan = []
-    for i in range(0, len(nc_files)):
+    for i in range(0, len(files)):
         nc_indx = i
-        print(f"Reading file number: {nc_indx}")
-        g16_data = nc_files[nc_indx]
+        g16_data = files[nc_indx]
         g16_data_file.append(g16_data)
         g16 = Dataset(g16_data_file[i], 'r')
         g16nc.append(g16)
@@ -49,8 +40,6 @@ def pre_process_tpw_product(path, station_id):
         xscan.append(xtemp)
         ytemp = g16nc[i].variables['y'][:]
         yscan.append(ytemp)
-        if nc_indx == 20:
-            break
 
     # GOES-R projection info and retrieving relevant constants
     proj_info = g16nc[0].variables['goes_imager_projection']
@@ -104,8 +93,7 @@ def pre_process_tpw_product(path, station_id):
     X = []
     Y = []
     TPW = []
-    for i in range(0, len(nc_files)):
-        print(f"Reading TPW from file number: {i}")
+    for i in range(0, len(files)):
         Xtemp = np.abs(xscan[i]-x).argmin()
         Ytemp = np.abs(yscan[i]-y).argmin()
         X.append(Xtemp)
@@ -116,16 +104,13 @@ def pre_process_tpw_product(path, station_id):
             TPW.append(TPWtemp)
         else:
             TPW.append(None)
-        if i == 20:
-            break
 
     # Record time of measurement
     t = []
     epoch = []
     date = []
     plottime = []
-    for i in range(0, len(nc_files)):
-        print(f"Reading Date from file number: {i}")
+    for i in range(0, len(files)):
         ttemp = g16nc[i].variables['t'][:]
         t.append(ttemp)
         epochtemp = 946728000 + int(t[i])
@@ -134,18 +119,57 @@ def pre_process_tpw_product(path, station_id):
         date.append(datetemp)
         plottimetemp = time.strftime("%H:%M:%S", time.gmtime(epoch[i]))
         plottime.append(plottimetemp)
-        if i == 20:
-            break
+        # Close the NetCDF file
+        g16nc[i].close()
 
-    day = time.strftime("%a, %d %b %Y", time.gmtime(epoch[1]))
+    return date, TPW
 
-    # if csv:
-    np.savetxt('TPW_new_{}_{}.csv'.format(site, day), np.column_stack((date, TPW)),
-                delimiter=',', fmt='%s', header='Time,PWV', comments='')
+def pre_process_tpw_product(path, station_id):
+    """
+    Preprocess Total Precipitable Water (TPW) data from NetCDF files and save it to a Parquet file.
 
-    data = {'Datetime': date, 'TPW': TPW}
+    Args:
+        path (str): The path to the directory containing NetCDF data files.
+        station_id (str): The station ID for processing data.
+
+    Returns:
+        None
+
+    This function reads TPW data from a batch of NetCDF files, processes it, and saves it to a Parquet file.
+    The function navigates to the specified directory, collects TPW files, and processes them in batches of
+    1000 files to optimize memory usage. Processed data is stored in a Pandas DataFrame and then appended
+    to an existing Parquet file or a new one is created if it doesn't exist. Finally, the function returns
+    None after completing the preprocessing and saving.
+    """
+    # navigate to directory with .nc data files
+    os.chdir(str(path))
+    nc_files = glob.glob('*OR_ABI-L2-TPWF*')
+    nc_files = sorted(nc_files)
+
+    parquet_dir = '../../parquet_files/'
+
+    if not os.path.exists(parquet_dir):
+        os.makedirs(parquet_dir)
+
+    parquet_path = '../../parquet_files/tpw_preprocessed_file.parquet'
+
+    batch_size = 1000
+    total_files = len(nc_files)
+
+    df_date = []
+    df_tpw = []
+
+    print(f"You have {total_files} to be processed")
+
+    for i in range(0, total_files, batch_size):
+        batch_files = nc_files[i:i+batch_size]
+        dates, TPW = read_and_process_files(batch_files, station_id)
+        df_date.extend(dates)
+        df_tpw.extend(TPW)
+        print(f"{len(df_date)} Files was pre processed")
 
     # Create a DataFrame from the list of dictionaries
+    data = {'Datetime': df_date, 'TPW': df_tpw}
     df = pd.DataFrame(data)
 
     # Set the 'Datetime' column as the DatetimeIndex
@@ -153,37 +177,30 @@ def pre_process_tpw_product(path, station_id):
     df = df.set_index(pd.DatetimeIndex(df['Datetime']))
 
     # Remove time-related columns since now this information is in the index.
-    df = df.drop(['Datetime'], axis = 1)
+    df = df.drop(['Datetime'], axis=1)
 
-    parquet_dir = '../parquet_files/'
+    # Append to the existing Parquet file or create a new one
+    if os.path.exists(parquet_path):
+        table = pq.read_table(parquet_path)
+        df_existing = table.to_pandas()
+        df_combined = pd.concat([df_existing, df])
+    else:
+        df_combined = df
 
-    if not os.path.exists(parquet_dir):
-        os.makedirs(parquet_dir)
+    # Save the combined DataFrame to a Parquet file
+    df_combined.to_parquet(parquet_path, compression='gzip')
 
-    # Specify the path where you want to save the Parquet file
-    parquet_path = '../parquet_files/tpw_preprocessed_file.parquet'
-
-    # Save the DataFrame to a Parquet file
-    df.to_parquet(parquet_path, compression='gzip')
-
-    return date, TPW
+    return
 
 def main(argv):
     parser = argparse.ArgumentParser(description='Preprocess ABI products station data.')
     parser.add_argument('-s', '--station_id', required=True, choices=INMET_STATION_CODES_RJ, help='ID of the weather station to preprocess data for.')
-    # args = parser.parse_args(argv[1:])
-    # print(args)
 
     directory = 'data/goes16/abi_files'
+    station_id = 'A652'
 
-    station_id = 'A652' # args.station_id
-
-    # print(f'Going to preprocess data sources according to station id ({args.station_id})...')
-
-    print('\n***Preprocessing weather station data***')
-
+    print('\n***Preprocessing TPW Files***')
     pre_process_tpw_product(directory, station_id)
-
     print('Done!')
 
 if __name__ == '__main__':
