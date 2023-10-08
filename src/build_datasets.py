@@ -207,10 +207,11 @@ def get_goes16_data_for_weather_station(df: pd.DataFrame, station_id: str, max_e
         hourly_data = filtered_df.resample('H').max()
     else:
         hourly_data = filtered_df.resample('H').mean()
+    hourly_data['event_energy'].fillna(0, inplace=True)
     result_df = pd.DataFrame(hourly_data[['event_energy']])
     
     # Remove rows with NaN values in 'event_energy' column
-    result_df = result_df.dropna(subset=['event_energy'])
+    # result_df = result_df.dropna(subset=['event_energy'])
 
     return result_df
 
@@ -225,7 +226,8 @@ station_ids_for_goes16 = {
         }
     }
 
-def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_source: bool, join_lightning_data_source: bool, subsampling_procedure: str):
+def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_source: bool, join_lightning_data_source: bool, subsampling_procedure: str, 
+                   join_tpw_data_source: bool):
     '''
     This function joins a set of datasources to build datasets. These resulting datasets are used to fit the 
     parameters of precipitation models down the AtmoSeer pipeline. Each datasource contributes with a group 
@@ -243,9 +245,11 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         pipeline_id = pipeline_id + '_R'
     if join_lightning_data_source:
         pipeline_id = pipeline_id + '_L'
+    if join_tpw_data_source:
+        pipeline_id = pipeline_id + '_T'
 
     logging.info(f"Loading observations for weather station {station_id}...")
-    df_ws = pd.read_parquet("/mnt/e/atmoseer/data/ws/inmetinmetA652_preprocessed.parquet.gzip")
+    df_ws = pd.read_parquet("data/ws/inmetinmetA652_preprocessed.parquet.gzip")
     logging.info(f"Done! Shape = {df_ws.shape}.")
 
     ####
@@ -293,7 +297,7 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     assert (not joined_df.isnull().values.any().any())
 
     if join_AS_data_source:
-        filename = AS_DATA_DIR + 'SBGL_indices_1997_2023.parquet.gzip'
+        filename = AS_DATA_DIR + 'SBGL_indices"_1997_2023",.parquet.gzip'
         logging.info(f"Loading atmospheric sounding indices from {filename}...")
         df_as = pd.read_parquet(filename)
         logging.info(f"Done! Shape = {df_as.shape}.")
@@ -341,12 +345,13 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
 
     if join_lightning_data_source:
         print(f"Loading GLM (Goes 16) data near the weather station {station_id}...", end= "")
-        df_lightning = pd.read_parquet('/mnt/e/atmoseer/data/ws/merged_file_preprocessed.parquet.gzip')
+        df_lightning = pd.read_parquet('data/ws/merged_file_preprocessed.parquet.gzip')
         df_lightning_filtered = get_goes16_data_for_weather_station(df_lightning, station_id)
         print(f"Done! Shape = {df_lightning_filtered.shape}.")
         print(df_lightning_filtered.isnull().sum())
         assert (not df_lightning_filtered.isnull().values.any().any())
         joined_df = pd.merge(df_ws, df_lightning_filtered, how='left', left_index=True, right_index=True)
+        joined_df['event_energy'].fillna(0, inplace=True)
 
         print(f"GLM data successfully joined; resulting shape = {joined_df.shape}.")
         print(df_ws.index.difference(joined_df.index).shape)
@@ -356,6 +361,29 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         print(df_lightning_filtered.index.difference(df_ws.index).shape)
         print(df_ws.index.difference(df_lightning_filtered.index).shape)
         print(df_ws.index.difference(df_lightning_filtered.index))
+
+        shape_before_dropna = joined_df.shape
+        joined_df = joined_df.dropna()
+        shape_after_dropna = joined_df.shape
+        print(f"Removed NaN rows in merge data; Shapes before/after dropna: {shape_before_dropna}/{shape_after_dropna}.")
+
+    if join_tpw_data_source:
+        print(f"Loading TPW (Goes 16) data near the weather station", end= "")
+        df_tpw = pd.read_parquet('data/goes16/parquet_files/tpw_preprocessed_file.parquet')
+        df_tpw_filtered = df_tpw.resample('H').max()
+        joined_df = pd.merge(df_ws, df_tpw_filtered, how='left', left_index=True, right_index=True)
+        joined_df['TPW'].fillna(0, inplace=True)
+        print(joined_df.isnull().sum())
+        assert (not joined_df.isnull().values.any().any())
+
+        print(f"TPW data successfully joined; resulting shape = {joined_df.shape}.")
+        print(df_ws.index.difference(joined_df.index).shape)
+        print(joined_df.index.difference(df_ws.index).shape)
+
+        print(df_tpw_filtered.index.intersection(df_ws.index).shape)
+        print(df_tpw_filtered.index.difference(df_ws.index).shape)
+        print(df_ws.index.difference(df_tpw_filtered.index).shape)
+        print(df_ws.index.difference(df_tpw_filtered.index))
 
         shape_before_dropna = joined_df.shape
         joined_df = joined_df.dropna()
@@ -422,6 +450,8 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     df_train = util.min_max_normalize(df_train)
     df_val = util.min_max_normalize(df_val)
     df_test = util.min_max_normalize(df_test)
+
+    df_train['TPW'].fillna(0, inplace=True)
 
     assert (not df_train.isnull().values.any().any())
     assert (not df_val.isnull().values.any().any())
@@ -502,7 +532,7 @@ def main(argv):
     # args = parser.parse_args(argv[1:])
 
     station_id = 'A652'
-    datasources = ['L']
+    datasources = ['T']
     # num_neighbors = 0
     # subsampling_procedure = args.subsampling_procedure
 
@@ -522,6 +552,7 @@ def main(argv):
 
     join_as_data_source = False
     join_nwp_data_source = False
+    join_lightning_data_source = False
     subsampling_procedure = "NONE"
 
     if datasources:
@@ -531,9 +562,11 @@ def main(argv):
             join_nwp_data_source = True
         if 'L' in datasources:
             join_lightning_data_source = True
+        if 'T' in datasources:
+            join_tpw_data_source = True
 
     assert(station_id is not None) and (station_id != "")
-    build_datasets(station_id, join_as_data_source, join_nwp_data_source, join_lightning_data_source, subsampling_procedure)
+    build_datasets(station_id, join_as_data_source, join_nwp_data_source, join_lightning_data_source, subsampling_procedure, join_tpw_data_source)
 
 if __name__ == "__main__":
     main(sys.argv)

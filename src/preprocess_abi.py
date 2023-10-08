@@ -4,7 +4,6 @@ import numpy as np
 import time
 import glob
 import pandas as pd
-import pyarrow as pa
 import pyarrow.parquet as pq
 
 import argparse
@@ -53,29 +52,9 @@ def read_and_process_files(files, station_id):
     if station_id == 'A652':
         latitude = -22.98833
         longitude = -43.19055
-        site = 'Forte de copacabana'
     elif station_id == 'San Pedro Martir':
         latitude = 30.9058267
         longitude = -115.4254954
-        site = 'San Pedro Mártir'
-    elif station_id == 'Other':
-        site = 'Lat; {} degrees Lon: {} degrees.'.format(latitude, longitude)
-        print('First type latitude coordinate, hit Enter, then longitude coordinate and Enter again.')
-        print('Latitude valid range: [-81.3282, 81.3283] \n'
-              'Longitude valid range: [-156.2995, 6.2995]')
-        print('\n' 'Latitude:')
-        latitude = input()
-        while float(latitude) < -81.3281 or float(latitude) > 81.3283:
-            print('Invalid latitude range. Enter a value between -81.3282 and 81.3283')
-            print('Latitude:')
-            latitude = input()
-
-        print('\n' 'Longitude:')
-        longitude = input()
-        while float(longitude) < -156.2995 or float(longitude) > 6.2995:
-            print('Invalid longitude range. Enter a value between -156.2995 and 6.2995')
-            print('Longitude:')
-            longitude = input()
     lat = rad*latitude
     lon = rad*longitude
     lambda_0 = rad*lon_origin
@@ -109,7 +88,6 @@ def read_and_process_files(files, station_id):
     t = []
     epoch = []
     date = []
-    plottime = []
     for i in range(0, len(files)):
         ttemp = g16nc[i].variables['t'][:]
         t.append(ttemp)
@@ -117,8 +95,6 @@ def read_and_process_files(files, station_id):
         epoch.append(epochtemp)
         datetemp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(epoch[i]))
         date.append(datetemp)
-        plottimetemp = time.strftime("%H:%M:%S", time.gmtime(epoch[i]))
-        plottime.append(plottimetemp)
         # Close the NetCDF file
         g16nc[i].close()
 
