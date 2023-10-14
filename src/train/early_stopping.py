@@ -46,5 +46,5 @@ class EarlyStopping:
         if self.verbose:
             print(
                 f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
-        torch.save(model.state_dict(), '/mnt/e/atmoseer/data/as/best_' + pipeline_id + '.pt')
+        torch.save(model.state_dict(), globals.MODELS_DIR + '/best_' + pipeline_id + '.pt')
         self.val_loss_min = val_loss

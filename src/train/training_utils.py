@@ -60,7 +60,7 @@ class DeviceDataLoader():
         return len(self.dl)
 
 
-def create_train_and_val_loaders(X_train, y_train, X_val, y_val, batch_size, train_weights, val_weights):
+def DEPRECATED_create_train_and_val_loaders(X_train, y_train, X_val, y_val, batch_size, train_weights, val_weights):
     X_train = torch.from_numpy(X_train.astype('float64'))
     X_train = torch.permute(X_train, (0, 2, 1))
     y_train = torch.from_numpy(y_train.astype('float64'))
@@ -82,7 +82,6 @@ def create_train_and_val_loaders(X_train, y_train, X_val, y_val, batch_size, tra
         val_ds, batch_size=batch_size, shuffle=True)
 
     return train_loader, val_loader
-
 
 def gen_learning_curve(train_loss, val_loss, pipeline_id):
     fig = plt.figure(figsize=(10, 8))

@@ -2,9 +2,8 @@ import pandas as pd
 from pathlib import Path
 import argparse
 import sys
-from globals import *
-from util import *
-import util as util
+import globals
+import util
 from sklearn.impute import KNNImputer
 
 # list_valid_datasource_combinations = ("R", "N", "R+N")
@@ -52,81 +51,82 @@ from sklearn.impute import KNNImputer
 #     print(f"Saving preprocessed data to {filename}")
 #     df.to_parquet(filename, compression='gzip')
 
-# We need to add filter for station of Copacabana 
-def preprocess_lightning_data(lightning_model_data_source):
-    """
-    Preprocesses lightning model data by adding timestamps as an index and saving the preprocessed data to disk.
-    This function loads the lightning model data from a Parquet file, adds a datetime index using the 'event_time_offset'
-    column, removes the time-related columns since the information is now in the index, and saves the preprocessed data to
-    a new Parquet file with a compressed gzip format.
+def preprocess_ws(ws_id, ws_filename, output_folder):
+    print(f"Loading datasource file {ws_filename}).")
+    df = pd.read_parquet(ws_filename)
 
-    Args:
-        lightning_model_data_source (str): The path to the lightning model data source file.
-    """
-    print(f"Loading datasource file ({lightning_model_data_source}).")
-    df = pd.read_parquet(lightning_model_data_source)
-    format_string = '%Y-%m-%d %H:%M:%S'
-
-    #
-    # Add index to dataframe using the observation's timestamps.
-    df['Datetime'] = pd.to_datetime(df['event_time_offset'], format=format_string)
-    df = df.set_index(pd.DatetimeIndex(df['Datetime']))
-    print(f"Range of timestamps after preprocessing {lightning_model_data_source}: [{min(df.index)}, {max(df.index)}]")
-
-    #
-    # Remove time-related columns since now this information is in the index.
-    df = df.drop(['event_time_offset', 'Datetime'], axis = 1)
-
-    #
-    # Save preprocessed data.
-    filename_and_extension = get_filename_and_extension(lightning_model_data_source)
-    # filename = WS_GOES_DATA_DIR + filename_and_extension[0] + '_preprocessed.parquet.gzip'
-    filename = "/mnt/e/atmoseer/data/ws/" + filename_and_extension[0] + '_preprocessed.parquet.gzip'
-    print(f"Saving preprocessed data to {filename}")
-    df.to_parquet(filename, compression='gzip')
-
-def preprocess_ws(station_id, ws_datasource):
-    print(f"Loading datasource file ({ws_datasource}).")
-    df = pd.read_csv(ws_datasource)
+    print(df.head())
 
     #
     # Add index to dataframe using the timestamps.
-    df = add_datetime_index(station_id, df)
+    df = util.add_datetime_index(ws_id, df)
+
+    print(df.head())
+
+    #
+    # Standardize column names.
+    if ws_id in globals.ALERTARIO_WEATHER_STATION_IDS:
+        column_name_mapping = {
+            "datetime": "datetime",
+            "temperature_mean": "temperature",
+            "humidity_mean": "relative_humidity",
+            "pressure_mean": "barometric_pressure",
+            "wind_speed_mean": "wind_speed",
+            "wind_dir_mean": "wind_dir",
+            "precipitation_sum": "precipitation"
+        }
+    elif ws_id in globals.INMET_WEATHER_STATION_IDS:
+        column_name_mapping = {
+            "datetime": "datetime",
+            "TEM_MAX": "temperature",
+            "UMD_MAX": "relative_humidity",
+            "PRE_MAX": "barometric_pressure",
+            "VEN_VEL": "wind_speed",
+            "VEN_DIR": "wind_dir",
+            "CHUVA": "precipitation"
+        }
+    column_names = column_name_mapping.keys()
+    df = util.get_dataframe_with_selected_columns(df, column_names)
+    df = util.rename_dataframe_column_names(df, column_name_mapping)
+
+    print(df.head())
+
+    predictor_names, target_name = util.get_relevant_variables(ws_id)
+    print(f"Chosen predictors: {predictor_names}")
+    print(f"Chosen target: {target_name}")
 
     #
     # Drop observations in which the target variable is not defined.
     print(f"Dropping entries with null target.")
     n_obser_before_drop = len(df)
-    df = df[df['CHUVA'].notna()]
+    df = df[df[target_name].notna()]
     n_obser_after_drop = len(df)
     print(f"Number of observations before/after dropping entries with undefined target value: {n_obser_before_drop}/{n_obser_after_drop}.")
     print(f"Range of timestamps after dropping entries with undefined target value: [{min(df.index)}, {max(df.index)}]")
 
     #
     # Create wind-related features (U and V components of wind observations).
-    df = add_wind_related_features(station_id, df)
+    df = util.add_wind_related_features(ws_id, df)
 
     #
     # Create hour-related features (sin and cos components)
-    df = add_hour_related_features(df)
+    df = util.add_hour_related_features(df)
 
-    predictor_names, target_name = get_relevant_variables(station_id)
-    print(f"Chosen predictors: {predictor_names}")
-    print(f"Chosen target: {target_name}")
     df = df[predictor_names + [target_name]]
 
     #
     # Normalize the weather station data. This step is necessary here due to the next step, which deals with missing values.
     # Notice that we drop the target column before normalizing, to avoid some kind of data leakage.
     # (see https://stats.stackexchange.com/questions/214728/should-data-be-normalized-before-or-after-imputation-of-missing-data)
-    print("Normalizing data before applying KNNImputer...", end='')
+    print("Min-max normalizing data...", end='')
     target_column = df[target_name]
     df = df.drop(columns=[target_name], axis=1)
-    df = min_max_normalize(df)
+    df = util.min_max_normalize(df)
     print("Done!")
 
     # 
     # Imput missing values on some features.
+    print("Applying KNNImputer...", end='')
     percentage_missing = (df.isna().mean() * 100).mean() # Compute the percentage of missing values
     print(f"There are {df.isnull().sum().sum()} missing values ({percentage_missing:.2f}%). Going to fill them...", end = '')
     imputer = KNNImputer(n_neighbors=2)
@@ -140,46 +140,34 @@ def preprocess_ws(station_id, ws_datasource):
 
     #
     # Save preprocessed data to a parquet file.
-    filename_and_extension = get_filename_and_extension(ws_datasource)
-    filename = WS_INMET_DATA_DIR + filename_and_extension[0] + '_preprocessed.parquet.gzip'
+    filename_and_extension = util.get_filename_and_extension(ws_filename)
+    filename = output_folder + filename_and_extension[0] + '_preprocessed.parquet.gzip'
     print(f"Saving preprocessed data to {filename}")
     df.to_parquet(filename, compression='gzip')
 
 def main(argv):
     parser = argparse.ArgumentParser(description='Preprocess weather station data.')
-    parser.add_argument('-s', '--station_id', required=True, choices=INMET_STATION_CODES_RJ + COR_STATION_NAMES_RJ, help='ID of the weather station to preprocess data for.')
-    # parser.add_argument('-d', '--datasources', required=True, choices=list_valid_datasource_combinations, help='Data sources to preprocess. Combination of R (sounding indices) and N (NWP data) allowed.')
-    # parser.add_argument('-n', '--neighbors', default=0, type=int, help='Number of neighbor weather stations to use.')
-    # args = parser.parse_args(argv[1:])
+    parser.add_argument('-s', '--station_id', 
+                        required=True, 
+                        choices=globals.INMET_WEATHER_STATION_IDS + globals.ALERTARIO_WEATHER_STATION_IDS, 
+                        help='ID of the weather station to preprocess data for.')
+    args = parser.parse_args(argv[1:])
     
-    # sounding_indices_data_source = None
-    # numerical_model_data_source = None
-    
-    # if args.datasources.find('R') != -1:
-    #     sounding_indices_data_source = '../data/sounding/SBGL_indices_1997_2023.parquet.gzip'
-    # if args.datasources.find('N') != -1:
-    #     numerical_model_data_source = '../data/NWP/ERA5_A652_1997_2023.csv'
-    # if args.datasources.find('L') != -1:
-    #     lightning_model_data_source = '../data/goes16/merged_file.parquet.gzip'
-    lightning_model_data_source = '/mnt/e/atmoseer/data/goes16/merged_file.parquet'
+    station_id = args.station_id
 
-    # print(f'Going to preprocess data sources according to user specification ({args.datasources})...')
+    if not ((station_id in globals.INMET_WEATHER_STATION_IDS) or (station_id in globals.ALERTARIO_WEATHER_STATION_IDS)):
+        print(f"Invalid station identifier: {station_id}")
+        parser.print_help()
+        sys.exit(2)
 
-    # print('\n***Preprocessing weather station data***')
-    # ws_datasource = WS_INMET_DATA_DIR + args.station_id + ".csv"
-    # preprocess_ws("A652", "/mnt/e/atmoseer/data/ws/inmetA652.csv")
+    if (station_id in globals.INMET_WEATHER_STATION_IDS):
+        ws_data_dir = globals.WS_INMET_DATA_DIR
+    elif (station_id in globals.ALERTARIO_WEATHER_STATION_IDS):
+        ws_data_dir = globals.WS_ALERTARIO_DATA_DIR
 
-    # if lightning_model_data_source is not None:
-    #     print('\n***Preprocessing lightning indices data***')
-    #     preprocess_lightning_data(lightning_model_data_source)
-    
-    # if sounding_indices_data_source is not None:
-    #     print('\n***Preprocessing sounding indices data***')
-    #     preprocess_sounding_data(sounding_indices_data_source)
-
-    # if numerical_model_data_source is not None:
-    #     print('\n***Preprocessing NWP data***')
-    #     preprocess_numerical_model_data(numerical_model_data_source)
+    print(f'Preprocessing data coming from weather station {station_id}')
+    ws_filename = ws_data_dir + args.station_id + ".parquet"
+    preprocess_ws(ws_id=station_id, ws_filename=ws_filename, output_folder=ws_data_dir)
 
     print('Done!')
 

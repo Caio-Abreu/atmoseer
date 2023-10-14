@@ -18,13 +18,13 @@ def mean_bias_error(y_true, y_pred):
     return MBE
 
 def export_confusion_matrix_to_latex(y_true, y_pred, prediction_task):
-    if prediction_task == rp.PredictionTask.BINARY_CLASSIFICATION:
+    if prediction_task == rp.ForecastingTask.BINARY_CLASSIFICATION:
         df = pd.DataFrame(
             confusion_matrix(y_true, y_pred, labels=[0, 1]),
             index=['NORAIN', 'RAIN'],
             columns=['NORAIN', 'RAIN'],
         )
-    elif prediction_task == rp.PredictionTask.ORDINAL_CLASSIFICATION:
+    elif prediction_task == rp.ForecastingTask.ORDINAL_CLASSIFICATION:
         df = pd.DataFrame(
             confusion_matrix(y_true, y_pred, labels=[0, 1, 2, 3, 4]),
             index=['None', 'Weak', 'Moderate', 'Strong', 'Extreme'],

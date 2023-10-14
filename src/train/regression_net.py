@@ -5,9 +5,9 @@ import torch.nn.functional as F
 from train.training_utils import *
 from train.evaluate import *
 
-class RegressionNet(nn.Module):
+class Regressor(nn.Module):
     def __init__(self, in_channels, y_mean_value):
-        super(RegressionNet, self).__init__()
+        super(Regressor, self).__init__()
 
         self.conv1d_1 = nn.Conv1d(
             in_channels=in_channels, out_channels=32, kernel_size=3, padding=2)

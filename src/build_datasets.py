@@ -4,19 +4,18 @@ import sys
 import pickle
 from utils.near_stations import prox
 
-from globals import *
-import globals as globals
+from era5_data_source import Era5ReanalisysDataSource
 
-from util import find_contiguous_observation_blocks, add_missing_indicator_column
+import globals
+
+from util import find_contiguous_observation_blocks, add_missing_indicator_column, split_dataframe_by_date
 from utils.windowing import apply_windowing
 import util as util
-import math
 import argparse
-import rainfall as rp
 from subsampling import apply_subsampling
-import xarray as xr
 import logging
 import yaml
+import datetime
 
 # def format_for_binary_classification(y_train, y_val, y_test):
 #     y_train_oc = map_to_binary_precipitation_levels(y_train)
@@ -71,107 +70,6 @@ def apply_sliding_window(df: pd.DataFrame, target_idx: int, window_size: int):
             y = np.concatenate((y, y_block), axis=0)
 
     return X, y
-
-def get_NWP_data_for_weather_station(station_id, initial_datetime, final_datetime):
-    df_stations = pd.read_csv("./data/ws/WeatherStations.csv")
-    row = df_stations[df_stations["STATION_ID"] == station_id].iloc[0]
-    station_latitude = row["VL_LATITUDE"]
-    station_longitude = row["VL_LONGITUDE"]
-
-    logging.info(f"Weather station {station_id} is located at lat/long = {station_latitude}/{station_longitude}")
-
-    logging.info(f"Selecting NWP data between {initial_datetime} and {final_datetime}.")
-    
-    ds = xr.open_dataset(globals.NWP_DATA_DIR + "ERA5.nc")
-    logging.info(f"Size.0: {ds.sizes['time']}")
-
-    # Get the minimum and maximum values of the 'time' coordinate
-    # time_min = ds.coords['time'].min().item()
-    # time_max = ds.coords['time'].max().item()
-    # logging.info(f"Range of timestamps in the original NWP data: [{ds.time.min()}, {ds.time.max()}]")
-    # logging.info(f"Range of timestamps in the original NWP data: [{time_min}, {time_max}]")
-    time_min = ds.time.min().values
-    time_max = ds.time.max().values
-    logging.info(f"Range of timestamps in the original NWP data: [{time_min}, {time_max}]")
-
-    # If we want to properly merge the two data sources, then we have to consider 
-    # only the range of periods in which these data sources intersect.
-    time_min = max(time_min, initial_datetime)
-    time_max = min(time_max, final_datetime)
-    logging.info(f"Range of timestamps to be selected: [{time_min}, {time_max}]")
-
-    ds = ds.sel(time=slice(time_min, time_max))
-    logging.info(f"Size.1: {ds.sizes['time']}")
-
-    era5_data_at_200hPa = ds.sel(level=200, longitude=station_longitude, latitude=station_latitude, method="nearest")
-    logging.info(f"Size.2: {era5_data_at_200hPa.sizes['time']}")
-
-    era5_data_at_700hPa = ds.sel(level=700, longitude=station_longitude, latitude=station_latitude, method="nearest")
-    logging.info(f"Size.3: {era5_data_at_700hPa.sizes['time']}")
-
-    era5_data_at_1000hPa = ds.sel(level=1000, longitude=station_longitude, latitude=station_latitude, method="nearest")
-    logging.info(f"Size.4: {era5_data_at_1000hPa.sizes['time']}")
-
-    logging.info(">>><<<")
-    logging.info(type(era5_data_at_1000hPa.time))
-    logging.info("-1-")
-    logging.info(era5_data_at_200hPa.time.values)
-    logging.info("-2-")
-    logging.info(era5_data_at_200hPa.z.values)
-    logging.info("-3-")
-    logging.info(era5_data_at_700hPa.z.values.shape)
-    logging.info("-4-")
-    logging.info(era5_data_at_700hPa.time.values)
-    logging.info("-5-")
-    logging.info(era5_data_at_700hPa.z.values)
-    logging.info("-6-")
-    logging.info(era5_data_at_700hPa.z.values.shape)
-    logging.info(">>><<<")
-
-    df_NWP_data_for_station = pd.DataFrame(
-        {
-            "time": era5_data_at_1000hPa.time.values,
-            
-            "Geopotential_200": era5_data_at_200hPa.z,
-            "Humidity_200": era5_data_at_200hPa.r,
-            "Temperature_200": era5_data_at_200hPa.t,
-            "WindU_200": era5_data_at_200hPa.u,
-            "WindV_200": era5_data_at_200hPa.v,
-
-            "Geopotential_700": era5_data_at_700hPa.z,
-            "Humidity_700": era5_data_at_700hPa.r,
-            "Temperature_700": era5_data_at_700hPa.t,
-            "WindU_700": era5_data_at_700hPa.u,
-            "WindV_700": era5_data_at_700hPa.v,
-
-            "Geopotential_1000": era5_data_at_1000hPa.z,
-            "Humidity_1000": era5_data_at_1000hPa.r,
-            "Temperature_1000": era5_data_at_1000hPa.t,
-            "WindU_1000": era5_data_at_1000hPa.u,
-            "WindV_1000": era5_data_at_1000hPa.v
-        }
-    )
-
-    # Drop rows with at least one NaN
-    logging.info(f"Shape before dropping NaN values is {df_NWP_data_for_station.shape}")
-    df_NWP_data_for_station = df_NWP_data_for_station.dropna(how='any')
-    logging.info(f"Shape before dropping NaN values is {df_NWP_data_for_station.shape}")
-
-    logging.info("Success!")
-
-    #
-    # Add index to dataframe using the timestamps.
-    format_string = '%Y-%m-%d %H:%M:%S'
-    df_NWP_data_for_station['Datetime'] = pd.to_datetime(df_NWP_data_for_station['time'], format=format_string)
-    df_NWP_data_for_station = df_NWP_data_for_station.set_index(pd.DatetimeIndex(df_NWP_data_for_station['Datetime']))
-    df_NWP_data_for_station = df_NWP_data_for_station.drop(['time', 'Datetime'], axis = 1)
-    logging.info(f"Range of timestamps in the selected slice of NWP data: [{min(df_NWP_data_for_station.index)}, {max(df_NWP_data_for_station.index)}]")
-
-    logging.info(df_NWP_data_for_station)
-
-    assert (not df_NWP_data_for_station.isnull().values.any().any())
-
-    return df_NWP_data_for_station
     
 def generate_windowed_split(train_df, val_df, test_df, target_name, window_size):
     target_idx = train_df.columns.get_loc(target_name)
@@ -226,68 +124,40 @@ station_ids_for_goes16 = {
         }
     }
 
-def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_source: bool, join_lightning_data_source: bool, subsampling_procedure: str, 
-                   join_tpw_data_source: bool):
-    '''
-    This function joins a set of datasources to build datasets. These resulting datasets are used to fit the 
-    parameters of precipitation models down the AtmoSeer pipeline. Each datasource contributes with a group 
-    of features to build the datasets that are going to be used for training and validating the prediction models.
-    
-    Notice that, when joining the user-specified data sources, there is always a station of interest, that is, 
-    a weather station that will provide the values of the target variable (in our case, precipitation). 
-    It can even be the case that the only user-specified data source is this weather station. 
-    '''
+import numpy as np
+import pandas as pd
 
-    pipeline_id = station_id
-    if join_NWP_data_source:
-        pipeline_id = pipeline_id + '_N'
-    if join_AS_data_source:
-        pipeline_id = pipeline_id + '_R'
-    if join_lightning_data_source:
-        pipeline_id = pipeline_id + '_L'
-    if join_tpw_data_source:
-        pipeline_id = pipeline_id + '_T'
+def gaussian_noise(df, column_name, mu=0, sigma=1):
 
-    logging.info(f"Loading observations for weather station {station_id}...")
-    df_ws = pd.read_parquet("data/ws/inmetinmetA652_preprocessed.parquet.gzip")
-    logging.info(f"Done! Shape = {df_ws.shape}.")
+    # Generate Gaussian noise
+    noise = np.random.normal(mu, sigma, size=df.shape[0])
 
-    ####
-    # Apply a filtering step, with the purpose of disregarding all observations made between  
-    # what we consider to be the drought period of a year (months of June, July, and August).
-    ####
-    logging.info(f"Applying month filtering...")
-    shape_before_month_filtering = df_ws.shape
-    df_ws = df_ws[df_ws.index.month.isin([9, 10, 11, 12, 1, 2, 3, 4, 5])].sort_index(ascending=True)
-    shape_after_month_filtering = df_ws.shape
-    logging.info(f"Done! Shapes before/after: {shape_before_month_filtering}/{shape_after_month_filtering}")
+    # Add noise to the column
+    df[column_name] = df[column_name] + noise
 
-    assert (not df_ws.isnull().values.any().any())
+    return df
 
-    #####
-    # Start with the mandatory datasource (i.e., the one represented by the chosen weather station) 
-    # and sequentially join the other user-specified datasources.
-    #####
+
+def add_user_specified_data_sources(station_id, join_AS_data_source, join_reanalisys_data_source, join_lightning_data_source, df_ws, min_datetime, max_datetime, join_tpw_data_source):
     joined_df = df_ws
-    min_datetime = min(joined_df.index)
-    max_datetime = max(joined_df.index)
 
-    if join_NWP_data_source:
-        logging.info(f"Loading NWP (ERA5) data near the weather station {station_id}...")
-        df_nwp_era5 = get_NWP_data_for_weather_station(station_id, min_datetime, max_datetime)
-        logging.info(f"Done! Shape = {df_nwp_era5.shape}.")
-        assert (not df_nwp_era5.isnull().values.any().any())
+    if join_reanalisys_data_source:
+        logging.info(f"Loading reanalisys (ERA5) data near the weather station {station_id}...")
+        data_source = Era5ReanalisysDataSource()
+        df_era5_reanalisys = data_source.get_data(station_id, min_datetime, max_datetime)
+        logging.info(f"Done! Shape = {df_era5_reanalisys.shape}.")
+        assert (not df_era5_reanalisys.isnull().values.any().any())
 
-        joined_df = pd.merge(df_ws, df_nwp_era5, how='left', left_index=True, right_index=True)
+        joined_df = pd.merge(df_ws, df_era5_reanalisys, how='left', left_index=True, right_index=True)
 
-        logging.info(f"NWP data successfully joined; resulting shape = {joined_df.shape}.")
+        logging.info(f"Reanalisys data successfully joined; resulting shape = {joined_df.shape}.")
         logging.info(df_ws.index.difference(joined_df.index).shape)
         logging.info(joined_df.index.difference(df_ws.index).shape)
 
-        logging.info(df_nwp_era5.index.intersection(df_ws.index).shape)
-        logging.info(df_nwp_era5.index.difference(df_ws.index).shape)
-        logging.info(df_ws.index.difference(df_nwp_era5.index).shape)
-        logging.info(df_ws.index.difference(df_nwp_era5.index))
+        logging.info(df_era5_reanalisys.index.intersection(df_ws.index).shape)
+        logging.info(df_era5_reanalisys.index.difference(df_ws.index).shape)
+        logging.info(df_ws.index.difference(df_era5_reanalisys.index).shape)
+        logging.info(df_ws.index.difference(df_era5_reanalisys.index))
 
         shape_before_dropna = joined_df.shape
         joined_df = joined_df.dropna()
@@ -297,7 +167,7 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     assert (not joined_df.isnull().values.any().any())
 
     if join_AS_data_source:
-        filename = AS_DATA_DIR + 'SBGL_indices"_1997_2023",.parquet.gzip'
+        filename = globals.AS_DATA_DIR + 'SBGL_indices_1997_2023.parquet.gzip'
         logging.info(f"Loading atmospheric sounding indices from {filename}...")
         df_as = pd.read_parquet(filename)
         logging.info(f"Done! Shape = {df_as.shape}.")
@@ -335,13 +205,13 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         # see https://stackoverflow.com/questions/27905295/how-to-replace-nans-by-preceding-or-next-values-in-pandas-dataframe
         joined_df.fillna(method='bfill', inplace=True)
 
-        assert (not joined_df.isnull().values.any().any())
-
         # TODO: data normalization 
         # TODO: implement interpolation
         # TODO: deal with missing values (see https://youtu.be/DKmDJJzayZw)
         # TODO: Imputing with MICE (see https://towardsdatascience.com/imputing-missing-data-with-simple-and-advanced-techniques-f5c7b157fb87)
         # TODO: use other sounding stations (?) (see tempo.inmet.gov.br/Sondagem/)
+
+    assert (not joined_df.isnull().values.any().any())
 
     if join_lightning_data_source:
         print(f"Loading GLM (Goes 16) data near the weather station {station_id}...", end= "")
@@ -354,18 +224,13 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         joined_df['event_energy'].fillna(0, inplace=True)
 
         print(f"GLM data successfully joined; resulting shape = {joined_df.shape}.")
-        print(df_ws.index.difference(joined_df.index).shape)
-        print(joined_df.index.difference(df_ws.index).shape)
-
-        print(df_lightning_filtered.index.intersection(df_ws.index).shape)
-        print(df_lightning_filtered.index.difference(df_ws.index).shape)
-        print(df_ws.index.difference(df_lightning_filtered.index).shape)
-        print(df_ws.index.difference(df_lightning_filtered.index))
 
         shape_before_dropna = joined_df.shape
         joined_df = joined_df.dropna()
         shape_after_dropna = joined_df.shape
         print(f"Removed NaN rows in merge data; Shapes before/after dropna: {shape_before_dropna}/{shape_after_dropna}.")
+
+    assert (not joined_df.isnull().values.any().any())
 
     if join_tpw_data_source:
         print(f"Loading TPW (Goes 16) data near the weather station", end= "")
@@ -390,32 +255,79 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         shape_after_dropna = joined_df.shape
         print(f"Removed NaN rows in merge data; Shapes before/after dropna: {shape_before_dropna}/{shape_after_dropna}.")
 
+    return joined_df
+
+def build_datasets(station_id: str, 
+                   input_folder: str,
+                   train_test_threshold: datetime.datetime,
+                   join_AS_data_source: bool, 
+                   join_reanalisys_data_source: bool, 
+                   join_lightning_data_source: bool, 
+                   subsampling_procedure: str,
+                   join_tpw_data_source: bool):
+    '''
+    This function joins a set of datasources to build datasets. These resulting datasets are used to fit the 
+    parameters of precipitation models down the AtmoSeer pipeline. Each datasource contributes with a group 
+    of features to build the datasets that are going to be used for training and validating the prediction models.
+    
+    Notice that, when joining the user-specified data sources, there is always a station of interest, that is, 
+    a weather station that will provide the values of the target variable (in our case, precipitation). 
+    It can even be the case that the only user-specified data source is this weather station. 
+    '''
+
+    pipeline_id = station_id
+    if join_reanalisys_data_source:
+        pipeline_id = pipeline_id + '_N'
+    if join_AS_data_source:
+        pipeline_id = pipeline_id + '_R'
+    if join_lightning_data_source:
+        pipeline_id = pipeline_id + '_L'
+
+    logging.info(f"Loading observations for weather station {station_id}...")
+    df_ws = pd.read_parquet(input_folder + station_id + "_preprocessed.parquet.gzip")
+    logging.info(f"Done! Shape = {df_ws.shape}.")
+
+    ####
+    # Apply a filtering step, with the purpose of disregarding all observations made between  
+    # what we consider to be the drought period of a year (months of June, July, and August).
+    ####
+    logging.info(f"Applying month filtering...")
+    shape_before_month_filtering = df_ws.shape
+    df_ws = df_ws[df_ws.index.month.isin([9, 10, 11, 12, 1, 2, 3, 4, 5])].sort_index(ascending=True)
+    shape_after_month_filtering = df_ws.shape
+    logging.info(f"Done! Shapes before/after: {shape_before_month_filtering}/{shape_after_month_filtering}")
+
+    assert (not df_ws.isnull().values.any().any())
+
+    #####
+    # Start with the mandatory data source (i.e., the one represented by the weather 
+    # station of interest) and sequentially join the other user-specified datasources.
+    #####
+    joined_df = df_ws
+    min_datetime = min(joined_df.index)
+    max_datetime = max(joined_df.index)
+
+    #####
+    # Now add user-specified data sources.
+    #####
+    joined_df = add_user_specified_data_sources(station_id, join_AS_data_source, join_reanalisys_data_source, join_lightning_data_source, df_ws, min_datetime, max_datetime, join_tpw_data_source)
+
     #
     # Save train/val/test DataFrames for future error analisys.
-    filename = DATASETS_DIR + pipeline_id + '.parquet.gzip'
-    print(f'Saving joined data source for pipeline {pipeline_id} to file {filename}.')
+    filename = globals.DATASETS_DIR + pipeline_id + '.parquet.gzip'
+    logging.info(f'Saving joined data source for pipeline {pipeline_id} to file {filename}.')
     joined_df.to_parquet(filename, compression='gzip')
 
     assert (not joined_df.isnull().values.any().any())
 
-    #
-    # Data splitting (train/val/test)
-    # TODO: parameterize with user-defined splitting proportions.
-    dict_splitting_proportions = {"train": 0.7, "val": 0.2, "test": 0.1}
-    logging.info(f"Splitting train/val/test examples according to proportion {dict_splitting_proportions}.")
-    assert (math.isclose(sum(dict_splitting_proportions.values()),1.0, abs_tol=1e-8))
+    df_train_val, df_test = split_dataframe_by_date(joined_df, train_test_threshold)
 
-    train_prob = dict_splitting_proportions["train"]
-    val_prob = dict_splitting_proportions["val"]
-    n = len(joined_df)
-    
-    train_upper_limit = int(n*train_prob)
-    val_upper_limit = int(n*(train_prob+val_prob))
-    logging.info(f"Ranges (train/val/test): ({0},{train_upper_limit})/({train_upper_limit},{val_upper_limit})/({val_upper_limit},{n})")
-
-    df_train = joined_df[0:train_upper_limit]
-    df_val = joined_df[train_upper_limit:val_upper_limit]
-    df_test = joined_df[val_upper_limit:]
+    # TODO: parameterize with user-defined train/val splitting proportions.
+    n = len(df_train_val)
+    train_val_split = 0.8
+    train_upper_limit = int(n*train_val_split)
+    df_train = df_train_val[0:train_upper_limit]
+    df_val = df_train_val[train_upper_limit:]
 
     assert (not df_train.isnull().values.any().any())
     assert (not df_val.isnull().values.any().any())
@@ -429,14 +341,19 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     #
     # Save train/val/test DataFrames for future error analisys.
     logging.info(f'Saving each train/val/test dataset for pipeline {pipeline_id} as a parquet file.')
-    df_train.to_parquet(DATASETS_DIR + pipeline_id + '_train.parquet.gzip', compression='gzip')
-    df_val.to_parquet(DATASETS_DIR + pipeline_id + '_val.parquet.gzip', compression='gzip')
-    df_test.to_parquet(DATASETS_DIR + pipeline_id + '_test.parquet.gzip', compression='gzip')
+    df_train.to_parquet(globals.DATASETS_DIR + pipeline_id + '_train.parquet.gzip', compression='gzip')
+    df_val.to_parquet(globals.DATASETS_DIR + pipeline_id + '_val.parquet.gzip', compression='gzip')
+    df_test.to_parquet(globals.DATASETS_DIR + pipeline_id + '_test.parquet.gzip', compression='gzip')
 
     assert (not df_train.isnull().values.any().any())
     assert (not df_val.isnull().values.any().any())
     assert (not df_test.isnull().values.any().any())
 
+    if (station_id in globals.ALERTARIO_GAUGE_STATION_IDS):
+        df_train = gaussian_noise(df_train, "barometric_pressure", mu=1000)
+        df_val = gaussian_noise(df_val, "barometric_pressure", mu=1000)
+        df_test = gaussian_noise(df_test, "barometric_pressure", mu=1000)
+    
     #
     # Normalize the columns in train/val/test dataframes. This is done as a preparation step for applying
     # the sliding window technique, since the target variable is going to be used as lag feature.
@@ -458,7 +375,7 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     assert (not df_test.isnull().values.any().any())
 
     #
-    # Apply sliding windowing method to build examples (instances) of train/val/test datasets 
+    # Apply sliding window method to build examples (instances) of train/val/test datasets 
     with open('./config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
     window_size = config["preproc"]["SLIDING_WINDOW_SIZE"]
@@ -510,10 +427,10 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         logging.info(f'- Shapes (y_train/y_val/y_test) after subsampling: {y_train.shape}, {y_val.shape}, {y_test.shape}')
 
     #
-    # Write numpy arrays for train/val/test datast to a single pickle file
+    # Write numpy arrays for train/val/test dataset to a single pickle file
     logging.info(
         f'Number of examples (train/val/test): {len(X_train)}/{len(X_val)}/{len(X_test)}.')
-    filename = DATASETS_DIR + pipeline_id + ".pickle"
+    filename = globals.DATASETS_DIR + pipeline_id + ".pickle"
     logging.info(f'Dumping train/val/test np arrays to pickle file {filename}.')
     file = open(filename, 'wb')
     ndarrays = (X_train, y_train, 
@@ -523,29 +440,45 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     logging.info('Done!')
 
 def main(argv):
-    # parser = argparse.ArgumentParser(
-    #     description="""This script builds the train/val/test datasets for a given weather station, by using the user-specified data sources.""")
-    # parser.add_argument('-s', '--station_id', type=str, required=True, help='station id')
-    # parser.add_argument('-d', '--datasources', type=str, help='data source spec')
-    # parser.add_argument('-n', '--num_neighbors', type=int, default = 0, help='number of neighbors')
-    # parser.add_argument('-sp', '--subsampling_procedure', type=str, default='NONE', help='Subsampling procedure do be applied.')
-    # args = parser.parse_args(argv[1:])
+    parser = argparse.ArgumentParser(
+        description="""This script builds the train/val/test datasets for a given weather station, by using the user-specified data sources.""")
+    parser.add_argument('-s', '--station_id', type=str, required=True, help='station id')
+    parser.add_argument('-t', '--train_test_threshold', type=str, required=True, help='The limiting date between train and test examples (format: YYYY-MM-DD).')
+    parser.add_argument('-d', '--datasources', type=str, help='data source spec')
+    parser.add_argument('-sp', '--subsampling_procedure', type=str, default='NONE', help='Subsampling procedure do be applied.')
+    args = parser.parse_args(argv[1:])
+
+    station_id = args.station_id
+    datasources = args.datasources
+    subsampling_procedure = args.subsampling_procedure
+
+    # This is really anonying!
+    if (station_id in globals.ALERTARIO_WEATHER_STATION_IDS or station_id in globals.ALERTARIO_GAUGE_STATION_IDS):
+        train_test_threshold = pd.to_datetime(args.train_test_threshold, utc=True)
+    else:
+        train_test_threshold = pd.to_datetime(args.train_test_threshold)
 
     station_id = 'A652'
     datasources = ['T']
-    # num_neighbors = 0
-    # subsampling_procedure = args.subsampling_procedure
 
     lst_subsampling_procedures = ["NONE", "NAIVE", "NEGATIVE"]
-    # if not (subsampling_procedure in lst_subsampling_procedures):
-    #     print(f"Invalid subsampling procedure: {subsampling_procedure}. Valid values: {lst_subsampling_procedures}")
-    #     parser.print_help()
-    #     sys.exit(2)
+    if not (subsampling_procedure in lst_subsampling_procedures):
+        print(f"Invalid subsampling procedure: {subsampling_procedure}. Valid values: {lst_subsampling_procedures}")
+        parser.print_help()
+        sys.exit(2)
 
-    # if not ((station_id in INMET_STATION_CODES_RJ) or (station_id in COR_STATION_NAMES_RJ)):
-    #     print(f"Invalid station identifier: {station_id}")
-    #     parser.print_help()
-    #     sys.exit(2)
+    if not ((station_id in globals.INMET_WEATHER_STATION_IDS) or (station_id in globals.ALERTARIO_WEATHER_STATION_IDS) or (station_id in globals.ALERTARIO_GAUGE_STATION_IDS)):
+        print(f"Invalid station identifier: {station_id}")
+        parser.print_help()
+        sys.exit(2)
+
+    if (station_id in globals.INMET_WEATHER_STATION_IDS):
+        input_folder = globals.WS_INMET_DATA_DIR
+    elif (station_id in globals.ALERTARIO_WEATHER_STATION_IDS):
+        input_folder = globals.WS_ALERTARIO_DATA_DIR
+    elif (station_id in globals.ALERTARIO_GAUGE_STATION_IDS):
+        # Its a gauge station.
+        input_folder = globals.GS_ALERTARIO_DATA_DIR
 
     fmt = "[%(levelname)s] %(funcName)s():%(lineno)i: %(message)s"
     logging.basicConfig(level=logging.DEBUG, format = fmt)
@@ -553,7 +486,6 @@ def main(argv):
     join_as_data_source = False
     join_nwp_data_source = False
     join_lightning_data_source = False
-    subsampling_procedure = "NONE"
 
     if datasources:
         if 'R' in datasources:
@@ -566,7 +498,16 @@ def main(argv):
             join_tpw_data_source = True
 
     assert(station_id is not None) and (station_id != "")
-    build_datasets(station_id, join_as_data_source, join_nwp_data_source, join_lightning_data_source, subsampling_procedure, join_tpw_data_source)
+
+
+    build_datasets(station_id, 
+                   input_folder,
+                   train_test_threshold,
+                   join_as_data_source, 
+                   join_nwp_data_source, 
+                   join_lightning_data_source,
+                   subsampling_procedure,
+                   join_tpw_data_source)
 
 if __name__ == "__main__":
     main(sys.argv)

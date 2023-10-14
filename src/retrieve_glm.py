@@ -2,7 +2,7 @@ import pandas as pd
 import sys, getopt
 from datetime import datetime
 from util import is_posintstring
-from globals import *
+import globals
 import s3fs
 import xarray as xr
 import os

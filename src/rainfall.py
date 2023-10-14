@@ -22,7 +22,7 @@ class ExtendedEnum(Enum):
     def list(cls):
         return list(map(lambda c: c.value, cls))
 
-class PredictionTask(ExtendedEnum):
+class ForecastingTask(ExtendedEnum):
     REGRESSION = 'REGRESSION'
     ORDINAL_CLASSIFICATION = 'ORDINAL_CLASSIFICATION'
     BINARY_CLASSIFICATION = 'BINARY_CLASSIFICATION'

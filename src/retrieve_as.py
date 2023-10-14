@@ -17,7 +17,7 @@ from siphon.simplewebservice.wyoming import WyomingUpperAir
 import util as util
 import time
 import requests
-from globals import *
+import globals 
 
 def get_data_for_year_and_hour_of_day(station_id, first_day, last_day, hour_of_day):
     unsuccesfull_launchs = 0
@@ -79,7 +79,7 @@ def get_data(station_id, start_year, end_year):
         unsuccesfull_launchs += nb_unsuccessful_launchs_of_year
 
     print(f"Done! There were {unsuccesfull_launchs} unsuccessful launchs in the specified period.")
-    filename = AS_DATA_DIR + station_id + '_'+ str(start_year) + '_' + str(end_year) + '.csv'
+    filename = globals.AS_DATA_DIR + station_id + '_'+ str(start_year) + '_' + str(end_year) + '.parquet.gzip'
     print(f"Saving data on {df_all_launchs.shape[0]} observations to file {filename}.", end=" ")
     df_all_launchs.to_parquet(filename, compression='gzip', index = False)
     print("Done!")
