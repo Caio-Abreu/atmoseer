@@ -14,6 +14,7 @@ from train.ordinal_classifier import OrdinalClassifier
 from train.binary_classifier import BinaryClassifier
 from train.regression_net import Regressor
 from train.training_utils import DeviceDataLoader, to_device, gen_learning_curve, seed_everything
+from train.gradient_boosting_classifier import GradientBoostingLearner
 from train.conv1d_neural_net import Conv1DNeuralNet 
 from train.lstm_neural_net import LstmNeuralNet
 import rainfall as rp
@@ -123,7 +124,8 @@ def train(forecaster, X_train, y_train, X_val, y_val, forecasting_task_sufix, pi
         global y_mean_value
         y_mean_value = np.mean(y_train)
         print(y_mean_value)
-
+    elif forecasting_task_sufix == "xg":
+        forecaster.fit(X_train, y_train)
     print(forecaster)
 
     BATCH_SIZE = config["training"][forecasting_task_sufix]["BATCH_SIZE"]
@@ -208,6 +210,8 @@ def main(argv):
         args.pipeline_id += "_" + prediction_task_sufix
     elif forecasting_task_id == rp.ForecastingTask.REGRESSION:
         args.pipeline_id += "_reg"
+    elif forecasting_task_id == rp.ForecastingTask.XGBOOST:
+        args.pipeline_id += "_xg"
 
     BATCH_SIZE = config["training"][prediction_task_sufix]["BATCH_SIZE"]
     DROPOUT_RATE = config["training"][prediction_task_sufix]["DROPOUT_RATE"]
@@ -240,6 +244,8 @@ def main(argv):
         forecaster = BinaryClassifier(learner)
     elif prediction_task_sufix == "reg":
         forecaster = Regressor(in_channels=NUM_FEATURES, y_mean_value=y_mean_value)
+    elif prediction_task_sufix == "xg":
+        forecaster = GradientBoostingLearner()
 
     # Build model
     start_time = time.time()
