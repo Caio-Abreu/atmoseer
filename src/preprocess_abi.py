@@ -77,10 +77,14 @@ def read_and_process_files(files, station_id):
         Ytemp = np.abs(yscan[i]-y).argmin()
         X.append(Xtemp)
         Y.append(Ytemp)
-        TPWtemp = g16nc[i].variables['TPW'][:]
-        TPWtemp = TPWtemp[Y[i], X[i]]
-        if isinstance(TPWtemp.T, np.float32):
-            TPW.append(TPWtemp)
+        flag = g16nc[i].variables['DQF_Overall'][:]
+        if flag[Y[i], X[i]] <= 1:
+            TPWtemp = g16nc[i].variables['TPW'][:]
+            TPWtemp = TPWtemp[Y[i], X[i]]
+            if isinstance(TPWtemp.T, np.float32):
+                TPW.append(TPWtemp)
+            else:
+                TPW.append(None)
         else:
             TPW.append(None)
 
@@ -170,7 +174,7 @@ def pre_process_tpw_product(path, station_id):
 
 def main(argv):
     parser = argparse.ArgumentParser(description='Preprocess ABI products station data.')
-    parser.add_argument('-s', '--station_id', required=True, choices=INMET_STATION_CODES_RJ, help='ID of the weather station to preprocess data for.')
+    # parser.add_argument('-s', '--station_id', required=True, choices=INMET_STATION_CODES_RJ, help='ID of the weather station to preprocess data for.')
 
     directory = 'data/goes16/abi_files'
     station_id = 'A652'

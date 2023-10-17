@@ -235,7 +235,7 @@ def add_user_specified_data_sources(station_id, join_AS_data_source, join_reanal
     if join_tpw_data_source:
         print(f"Loading TPW (Goes 16) data near the weather station", end= "")
         df_tpw = pd.read_parquet('data/goes16/parquet_files/tpw_preprocessed_file.parquet')
-        df_tpw_filtered = df_tpw.resample('H').max()
+        df_tpw_filtered = df_tpw.resample('H').sum()
         joined_df = pd.merge(df_ws, df_tpw_filtered, how='left', left_index=True, right_index=True)
         joined_df['TPW'].fillna(0, inplace=True)
         print(joined_df.isnull().sum())
