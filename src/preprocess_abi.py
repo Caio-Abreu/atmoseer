@@ -93,13 +93,11 @@ def read_and_process_files(files, station_id):
     epoch = []
     date = []
     for i in range(0, len(files)):
-        print(files[i])
         ttemp = g16nc[i].variables['t'][:]
         t.append(ttemp)
         epochtemp = 946728000 + int(t[i])
         epoch.append(epochtemp)
         datetemp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(epoch[i]))
-        print(datetemp)
         date.append(datetemp)
         # Close the NetCDF file
         g16nc[i].close()

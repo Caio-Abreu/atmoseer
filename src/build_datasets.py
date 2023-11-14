@@ -193,7 +193,7 @@ def generate_windowed_split(train_df, val_df, test_df, target_name, window_size)
     return X_train, y_train, X_val, y_val, X_test, y_test
 
 # TODO ver como tratar o max_event bool nos argumentos de python
-def get_goes16_data_for_weather_station(df: pd.DataFrame, station_id: str, max_event: bool = True) -> pd.DataFrame:
+def get_goes16_data_for_weather_station(df: pd.DataFrame, station_id: str, max_event: bool = False) -> pd.DataFrame:
     """
     Filters lightning event data in a DataFrame based on latitude and longitude boundaries for a specific weather station
     and calculates the maximum or median value of the 'event_energy' column on an hourly basis.
@@ -216,14 +216,12 @@ def get_goes16_data_for_weather_station(df: pd.DataFrame, station_id: str, max_e
 
     filtered_df = util.min_max_normalize(filtered_df)
 
+    result_df = filtered_df[["event_energy"]]
+
     if max_event:
-        hourly_data = filtered_df.resample('H').max()
+        result_df = result_df.resample('H').max()
     else:
-        hourly_data = filtered_df.resample('H').mean()
-    result_df = pd.DataFrame(hourly_data[['event_energy']])
-    
-    # Remove rows with NaN values in 'event_energy' column
-    # result_df = result_df.dropna(subset=['event_energy'])
+        result_df = result_df.resample('H').mean()
 
     return result_df
 
@@ -239,7 +237,7 @@ station_ids_for_goes16 = {
     }
 
 def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_source: bool, join_lightning_data_source: bool, subsampling_procedure: str, 
-                   join_tpw_data_source: bool):
+                   join_goes16_tpw_datasource: bool):
     '''
     This function joins a set of datasources to build datasets. These resulting datasets are used to fit the 
     parameters of precipitation models down the AtmoSeer pipeline. Each datasource contributes with a group 
@@ -257,7 +255,7 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         pipeline_id = pipeline_id + '_R'
     if join_lightning_data_source:
         pipeline_id = pipeline_id + '_L'
-    if join_tpw_data_source:
+    if join_goes16_tpw_datasource:
         pipeline_id = pipeline_id + '_T'
 
     logging.info(f"Loading observations for weather station {station_id}...")
@@ -358,13 +356,23 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     if join_lightning_data_source:
         print(f"Loading GLM (Goes 16) data near the weather station {station_id}...", end= "")
         df_lightning = pd.read_parquet('data/ws/merged_file_preprocessed.parquet.gzip')
+        df_lightning_1 = pd.read_parquet('data/parquet_files/glm_preprocessed_file_2018-2019.parquet')
+        df_lightning_1 = util.min_max_normalize(df_lightning_1)
+        df_lightning_1 = df_lightning_1.resample('H').mean()
         df_lightning_filtered = get_goes16_data_for_weather_station(df_lightning, station_id)
+        df_lightning_1 = df_lightning_1.drop('TPW', axis=1)
+        merged_df = pd.merge(df_lightning_1, df_lightning_filtered, left_index=True, right_index=True, how='outer')
+        # Combine 'event_energy_x' and 'event_energy_y' into a single column
+        merged_df['event_energy'] = merged_df['event_energy_x'].combine_first(merged_df['event_energy_y'])
+        # Drop the original separate 'event_energy_x' and 'event_energy_y' columns
+        df_lightning_filtered = merged_df.drop(['event_energy_x', 'event_energy_y'], axis=1)
         print(f"Done! Shape = {df_lightning_filtered.shape}.")
         print(df_lightning_filtered.isnull().sum())
+        df_lightning_filtered.fillna(method="bfill", inplace=True)
+        assert (not df_lightning_filtered.isnull().values.any().any())
         joined_df = pd.merge(df_ws, df_lightning_filtered, how='left', left_index=True, right_index=True)
-        # joined_df['media_11'] = joined_df['event_energy'].rolling(window=11, min_periods=1, center=True).apply(custom_mean)
-        joined_df['event_energy'].fillna(joined_df['event_energy'].mean(), inplace=True)
-        # joined_df.drop(columns=['media_11'], inplace=True)
+
+        joined_df['event_energy'].fillna(method="bfill", inplace=True)
 
         # Ruido branco
         lb_test_stat = acorr_ljungbox(joined_df['event_energy'], lags=10)
@@ -374,8 +382,6 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         plt.xlabel('Lag')
         plt.ylabel('Valor p')
         plt.show()
-
-        assert (not joined_df.isnull().values.any().any())
 
         print(f"GLM data successfully joined; resulting shape = {joined_df.shape}.")
         print(df_ws.index.difference(joined_df.index).shape)
@@ -391,28 +397,42 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         shape_after_dropna = joined_df.shape
         print(f"Removed NaN rows in merge data; Shapes before/after dropna: {shape_before_dropna}/{shape_after_dropna}.")
 
-    if join_tpw_data_source:
-        print(f"Loading TPW (Goes 16) data near the weather station", end= "")
+    joined_df = df_ws
+
+    if join_goes16_tpw_datasource:
+        logging.info(f"Loading GOES16 TPW product for weather station {station_id}...")
         df_tpw = pd.read_parquet('data/parquet_files/tpw_preprocessed_file.parquet')
-        df_tpw_filtered = df_tpw.resample('H').sum()
-        joined_df = pd.merge(df_ws, df_tpw_filtered, how='left', left_index=True, right_index=True)
-        joined_df['TPW'].fillna(1, inplace=True)
-        print(joined_df.isnull().sum())
-        assert (not joined_df.isnull().values.any().any())
+        df_tpw_filtered = df_tpw.resample('H').mean()
 
-        print(f"TPW data successfully joined; resulting shape = {joined_df.shape}.")
-        print(df_ws.index.difference(joined_df.index).shape)
-        print(joined_df.index.difference(df_ws.index).shape)
+        logging.info(f"Done! Shape = {df_tpw_filtered.shape}.")
 
-        print(df_tpw_filtered.index.intersection(df_ws.index).shape)
-        print(df_tpw_filtered.index.difference(df_ws.index).shape)
-        print(df_ws.index.difference(df_tpw_filtered.index).shape)
-        print(df_ws.index.difference(df_tpw_filtered.index))
+        logging.info(f"Range of timestamps in the TPW data: [{min(df_tpw_filtered.index)}, {max(df_tpw_filtered.index)}]")
+
+        joined_df = joined_df.join(df_tpw_filtered, how='inner')
+
+        logging.info(f"TPW data successfully joined; resulting shape: {joined_df.shape}.")
+
+        # print(joined_df.columns)
+
+        logging.info(f"Adding missing indicator column...")
+        joined_df = add_missing_indicator_column(joined_df, "tpw_idx_missing")
+        logging.info(f"Done! New shape: {joined_df.shape}.")
+
+        logging.info(f"Doing interpolation to imput missing values on the TPW values...")
+        joined_df['TPW'] = joined_df['TPW'].interpolate(method='linear')
+        logging.info(f"Done!")
+
+        # At the beggining of the joined dataframe, a few entries may remain with NaN values. 
+        # The code below gets rid of these entries.
+        # see https://stackoverflow.com/questions/27905295/how-to-replace-nans-by-preceding-or-next-values-in-pandas-dataframe
+        joined_df.fillna(method='bfill', inplace=True)
 
         shape_before_dropna = joined_df.shape
         joined_df = joined_df.dropna()
         shape_after_dropna = joined_df.shape
-        print(f"Removed NaN rows in merge data; Shapes before/after dropna: {shape_before_dropna}/{shape_after_dropna}.")
+        assert shape_before_dropna == shape_after_dropna
+
+    assert (not joined_df.isnull().values.any().any())
 
     #
     # Save train/val/test DataFrames for future error analisys.
@@ -474,8 +494,6 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     df_train = util.min_max_normalize(df_train)
     df_val = util.min_max_normalize(df_val)
     df_test = util.min_max_normalize(df_test)
-
-    df_train['TPW'].fillna(1, inplace=True)
 
     assert (not df_train.isnull().values.any().any())
     assert (not df_val.isnull().values.any().any())
@@ -556,7 +574,7 @@ def main(argv):
     # args = parser.parse_args(argv[1:])
 
     station_id = 'A652'
-    datasources = ['L','T']
+    datasources = ['L', "T"]
     # num_neighbors = 0
     # subsampling_procedure = args.subsampling_procedure
 
@@ -577,7 +595,7 @@ def main(argv):
     join_as_data_source = False
     join_nwp_data_source = False
     join_lightning_data_source = False
-    join_tpw_data_source = False
+    join_goes16_tpw_datasource = False
     subsampling_procedure = "NONE"
 
     if datasources:
@@ -588,10 +606,10 @@ def main(argv):
         if 'L' in datasources:
             join_lightning_data_source = True
         if 'T' in datasources:
-            join_tpw_data_source = True
+            join_goes16_tpw_datasource = True
 
     assert(station_id is not None) and (station_id != "")
-    build_datasets(station_id, join_as_data_source, join_nwp_data_source, join_lightning_data_source, subsampling_procedure, join_tpw_data_source)
+    build_datasets(station_id, join_as_data_source, join_nwp_data_source, join_lightning_data_source, subsampling_procedure, join_goes16_tpw_datasource)
 
 if __name__ == "__main__":
     main(sys.argv)

@@ -13,22 +13,6 @@ import concurrent.futures
 # Use the anonymous credentials to access public data
 fs = s3fs.S3FileSystem(anon=True)
 
-# Latitude and Longitude of RJ
-def filter_coordinates(ds:xr.Dataset):
-  """
-    Filter lightning event data in an xarray Dataset based on latitude and longitude boundaries.
-
-    Args:
-        ds (xarray.Dataset): Dataset containing lightning event data with variables `event_energy`, `event_lat`, and `event_lon`.
-
-    Returns:
-        xarray.Dataset: A new dataset with the same variables as `ds`, but with lightning events outside of the specified latitude and longitude boundaries removed.
-  """
-  return ds['event_energy'].where(
-      (ds['event_lat'] >= -22.9035) & (ds['event_lat'] <= -22.7469) &
-      (ds['event_lon'] >= -43.7958) & (ds['event_lon'] <= -43.0962),
-      drop=True)
-
 # Download all files in parallel, and rename them the same name (without the directory structure)
 @tenacity.retry(
     retry=tenacity.retry_if_exception_type(ConnectTimeoutError),
@@ -43,36 +27,17 @@ def download_file(files):
     Args:
         files (list): A list of strings representing the names of files to be downloaded from an S3 bucket.
     """
-    files_process = []
     
     def process_file(file):
         print(f"Reading file: {file}")
-        filename = f"data/goes16/glm_files/{file.split('/')[-1]}"
+        filename = f"data/goes16/glm_files_2/{file.split('/')[-1]}"
         try:
             fs.get(file, filename)
-            ds = xr.open_dataset(filename)
-            ds = filter_coordinates(ds)
-            if ds.number_of_events.nbytes != 0:
-                df = ds.to_dataframe()
-                df['event_time_offset'] = df['event_time_offset'].astype('datetime64[us]')
-                files_process.append(df)
-            ds.close()
         except Exception as e:
             print(f"Error processing file {file}: {str(e)}")
-        finally:
-            os.remove(filename)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         executor.map(process_file, files)
-
-    if len(files_process) > 0:
-        # concatenate datasets along the time dimension
-        merged_df = pd.concat(files_process)
-
-        # Save merged dataframe to a Parquet file
-        merged_df.to_parquet("data/goes16/goes16_merged_file.parquet")
-    else:
-        print("No data found within the specified coordinates and Date.")
 
 
 def import_data(station_code, initial_year, final_year):
@@ -114,7 +79,7 @@ def import_data(station_code, initial_year, final_year):
 
 def main(argv):
 
-    start_goes_16 = 2018
+    start_goes_16 = 2020
 
     # help_message = "{0} -s <station_id> -b <begin> -e <end>".format(argv[0])
     
@@ -146,7 +111,7 @@ def main(argv):
     # assert (start_year <= end_year) and (start_year >= start_goes_16)
 
     station_code = 'copacabana'
-    start_year = 2018
+    start_year = 2020
     end_year = 2023
 
     import_data(station_code, start_year, end_year)

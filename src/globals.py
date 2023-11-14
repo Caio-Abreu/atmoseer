@@ -1,23 +1,23 @@
 INMET_API_BASE_URL = "https://apitempo.inmet.gov.br"
 
 # Weather stations datasource directories
-WS_INMET_DATA_DIR = "./data/ws/inmet/"
-WS_ALERTARIO_DATA_DIR = "./data/ws/alertario/ws/"
-GS_ALERTARIO_DATA_DIR = "./data/ws/alertario/rain_gauge_era5_fused/"
+WS_INMET_DATA_DIR = "data/ws/inmet/"
+WS_ALERTARIO_DATA_DIR = "data/ws/alertario/ws/"
+GS_ALERTARIO_DATA_DIR = "data/ws/alertario/rain_gauge_era5_fused/"
 
 WS_GOES_DATA_DIR = "atmoseer/data/ws/goes16"
 
 # Atmospheric sounding datasource directory
-NWP_DATA_DIR = "./data/NWP/"
+NWP_DATA_DIR = "data/NWP/"
 
 # Atmospheric sounding datasource directory
-AS_DATA_DIR = "./data/as/"
+AS_DATA_DIR = "data/as/"
 
 # Directory to store the train/val/test datasets for each weather station of interest
-DATASETS_DIR = './data/datasets/'
+DATASETS_DIR = 'data/datasets/'
 
 # Directory to store the generated models and their corresponding reports
-MODELS_DIR = './models/'
+MODELS_DIR = '/mnt/e/atmoseer/data/as'
 
 # see https://portal.inmet.gov.br/paginas/catalogoaut
 INMET_WEATHER_STATION_IDS = ('A636', # Jacarepagua

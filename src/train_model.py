@@ -188,15 +188,18 @@ def main(argv):
 
     forecasting_task_id = None
 
-    if args.task == "ORDINAL_CLASSIFICATION":
+    task = args.task
+    pipeline_id = args.pipeline_id
+    learner = args.learner
+
+    if task == "ORDINAL_CLASSIFICATION":
         forecasting_task_id = rp.ForecastingTask.ORDINAL_CLASSIFICATION
-    elif args.task == "BINARY_CLASSIFICATION":
+    elif task == "BINARY_CLASSIFICATION":
         forecasting_task_id = rp.ForecastingTask.BINARY_CLASSIFICATION
 
     seed_everything()
 
-    X_train, y_train, X_val, y_val, X_test, y_test = pipeline.load_datasets(
-        args.pipeline_id)
+    X_train, y_train, X_val, y_val, X_test, y_test = pipeline.load_datasets(pipeline_id)
 
     with open('./config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
@@ -204,21 +207,21 @@ def main(argv):
 
     if forecasting_task_id == rp.ForecastingTask.ORDINAL_CLASSIFICATION:
         prediction_task_sufix = "oc"
-        args.pipeline_id += "_" + prediction_task_sufix
+        pipeline_id += "_" + prediction_task_sufix
     elif forecasting_task_id == rp.ForecastingTask.BINARY_CLASSIFICATION:
         prediction_task_sufix = "bc"
-        args.pipeline_id += "_" + prediction_task_sufix
+        pipeline_id += "_" + prediction_task_sufix
     elif forecasting_task_id == rp.ForecastingTask.REGRESSION:
-        args.pipeline_id += "_reg"
+        pipeline_id += "_reg"
     elif forecasting_task_id == rp.ForecastingTask.XGBOOST:
-        args.pipeline_id += "_xg"
+        pipeline_id += "_xg"
 
     BATCH_SIZE = config["training"][prediction_task_sufix]["BATCH_SIZE"]
     DROPOUT_RATE = config["training"][prediction_task_sufix]["DROPOUT_RATE"]
     OUTPUT_SIZE = config["training"][prediction_task_sufix]["OUTPUT_SIZE"]
 
     # Use globals() to access the global namespace and find the class by name
-    class_name = args.learner
+    class_name = learner
     print(class_name)
     class_obj = globals()[class_name]
 
@@ -226,7 +229,7 @@ def main(argv):
     if not isinstance(class_obj, type):
         raise ValueError(f"Class '{class_name}' not found.")
 
-    args.pipeline_id += "_" + class_name
+    pipeline_id += "_" + class_name
 
     NUM_FEATURES = X_train.shape[2]
     print(f"Number of features: {NUM_FEATURES}")
@@ -249,12 +252,12 @@ def main(argv):
 
     # Build model
     start_time = time.time()
-    train(forecaster, X_train, y_train, X_val, y_val, prediction_task_sufix, args.pipeline_id, learner, config)
+    train(forecaster, X_train, y_train, X_val, y_val, prediction_task_sufix, pipeline_id, learner, config)
     logging.info("Model training took %s seconds." % (time.time() - start_time))
 
     # Evaluate using the best model produced
     test_loader = learner.create_dataloader(X_test, y_test, batch_size=BATCH_SIZE)
-    forecaster.print_evaluation_report(args.pipeline_id, test_loader, forecasting_task_id)
+    forecaster.print_evaluation_report(pipeline_id, test_loader, forecasting_task_id)
 
 if __name__ == "__main__":
     start_time = time.time()
