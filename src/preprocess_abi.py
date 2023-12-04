@@ -52,9 +52,18 @@ def read_and_process_files(files, station_id):
     if station_id == 'A652':
         latitude = -22.98833
         longitude = -43.19055
-    elif station_id == 'San Pedro Martir':
-        latitude = 30.9058267
-        longitude = -115.4254954
+    elif station_id == 'A602':
+        latitude = -23.050278
+        longitude = -43.595556
+    elif station_id == 'A621':
+        latitude = -22.861389
+        longitude = -43.411389
+    elif station_id == 'A636':
+        latitude = -22.940000
+        longitude = -43.402778
+    elif station_id == 'A627':
+        latitude = -22.867500
+        longitude = -43.101944
     lat = rad*latitude
     lon = rad*longitude
     lambda_0 = rad*lon_origin
@@ -82,11 +91,11 @@ def read_and_process_files(files, station_id):
             TPWtemp = g16nc[i].variables['TPW'][:]
             TPWtemp = TPWtemp[Y[i], X[i]]
             if isinstance(TPWtemp.T, np.float32):
-                TPW.append(0)
+                TPW.append(TPWtemp)
             else:
-                TPW.append(1)
+                TPW.append(None)
         else:
-            TPW.append(1)
+            TPW.append(None)
 
     # Record time of measurement
     t = []
@@ -126,12 +135,12 @@ def pre_process_tpw_product(path, station_id):
     nc_files = glob.glob('*OR_ABI-L2-TPWF*')
     nc_files = sorted(nc_files)
 
-    parquet_dir = '../../parquet_files/'
+    parquet_dir = '/home/cribeiro/atmoseer/data/parquet_files'
 
     if not os.path.exists(parquet_dir):
         os.makedirs(parquet_dir)
 
-    parquet_path = '../../parquet_files/tpw_preprocessed_file.parquet'
+    parquet_path = f'/home/cribeiro/atmoseer/data/parquet_files/tpw_{station_id}_preprocessed_file.parquet'
 
     batch_size = 1000
     total_files = len(nc_files)
@@ -167,6 +176,8 @@ def pre_process_tpw_product(path, station_id):
     else:
         df_combined = df
 
+    print(f"Saving file in {parquet_path}")
+
     # Save the combined DataFrame to a Parquet file
     df_combined.to_parquet(parquet_path, compression='gzip')
 
@@ -174,10 +185,12 @@ def pre_process_tpw_product(path, station_id):
 
 def main(argv):
     parser = argparse.ArgumentParser(description='Preprocess ABI products station data.')
-    # parser.add_argument('-s', '--station_id', required=True, choices=INMET_STATION_CODES_RJ, help='ID of the weather station to preprocess data for.')
+    parser.add_argument('-s', '--station_id', required=True, help='ID of the weather station to preprocess data for.')
+    args = parser.parse_args(argv[1:])
 
     directory = 'data/goes16/abi_files'
-    station_id = 'A652'
+    
+    station_id = args.station_id
 
     print('\n***Preprocessing TPW Files***')
     pre_process_tpw_product(directory, station_id)
@@ -185,4 +198,3 @@ def main(argv):
 
 if __name__ == '__main__':
     main(sys.argv)
-

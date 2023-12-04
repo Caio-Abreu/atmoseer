@@ -259,7 +259,7 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         pipeline_id = pipeline_id + '_T'
 
     logging.info(f"Loading observations for weather station {station_id}...")
-    df_ws = pd.read_parquet("data/ws/inmetinmetA652_preprocessed.parquet.gzip")
+    df_ws = pd.read_parquet(f"data/ws/inmet/{station_id}_preprocessed.parquet.gzip")
     logging.info(f"Done! Shape = {df_ws.shape}.")
 
     ####
@@ -356,17 +356,7 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     if join_lightning_data_source:
         print(f"Loading GLM (Goes 16) data near the weather station {station_id}...", end= "")
         df_lightning = pd.read_parquet('data/ws/merged_file_preprocessed.parquet.gzip')
-        df_lightning_1 = pd.read_parquet('data/parquet_files/glm_preprocessed_file_2018-2019.parquet')
-        df_lightning_1 = util.min_max_normalize(df_lightning_1)
-        df_lightning_1 = df_lightning_1.resample('H').mean()
         df_lightning_filtered = get_goes16_data_for_weather_station(df_lightning, station_id)
-        df_lightning_1 = df_lightning_1.drop('TPW', axis=1)
-        merged_df = pd.merge(df_lightning_1, df_lightning_filtered, left_index=True, right_index=True, how='outer')
-        # Combine 'event_energy_x' and 'event_energy_y' into a single column
-        merged_df['event_energy'] = merged_df['event_energy_x'].combine_first(merged_df['event_energy_y'])
-        # Drop the original separate 'event_energy_x' and 'event_energy_y' columns
-        df_lightning_filtered = merged_df.drop(['event_energy_x', 'event_energy_y'], axis=1)
-        print(f"Done! Shape = {df_lightning_filtered.shape}.")
         print(df_lightning_filtered.isnull().sum())
         df_lightning_filtered.fillna(method="bfill", inplace=True)
         assert (not df_lightning_filtered.isnull().values.any().any())
@@ -397,11 +387,9 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         shape_after_dropna = joined_df.shape
         print(f"Removed NaN rows in merge data; Shapes before/after dropna: {shape_before_dropna}/{shape_after_dropna}.")
 
-    joined_df = df_ws
-
     if join_goes16_tpw_datasource:
         logging.info(f"Loading GOES16 TPW product for weather station {station_id}...")
-        df_tpw = pd.read_parquet('data/parquet_files/tpw_preprocessed_file.parquet')
+        df_tpw = pd.read_parquet(f'data/parquet_files/tpw_{station_id}_preprocessed_file.parquet')
         df_tpw_filtered = df_tpw.resample('H').mean()
 
         logging.info(f"Done! Shape = {df_tpw_filtered.shape}.")
@@ -411,8 +399,6 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
         joined_df = joined_df.join(df_tpw_filtered, how='inner')
 
         logging.info(f"TPW data successfully joined; resulting shape: {joined_df.shape}.")
-
-        # print(joined_df.columns)
 
         logging.info(f"Adding missing indicator column...")
         joined_df = add_missing_indicator_column(joined_df, "tpw_idx_missing")
@@ -565,16 +551,17 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     logging.info('Done!')
 
 def main(argv):
-    # parser = argparse.ArgumentParser(
-    #     description="""This script builds the train/val/test datasets for a given weather station, by using the user-specified data sources.""")
-    # parser.add_argument('-s', '--station_id', type=str, required=True, help='station id')
+    parser = argparse.ArgumentParser(
+        description="""This script builds the train/val/test datasets for a given weather station, by using the user-specified data sources.""")
+    parser.add_argument('-s', '--station_id', type=str, required=True, help='station id')
     # parser.add_argument('-d', '--datasources', type=str, help='data source spec')
     # parser.add_argument('-n', '--num_neighbors', type=int, default = 0, help='number of neighbors')
     # parser.add_argument('-sp', '--subsampling_procedure', type=str, default='NONE', help='Subsampling procedure do be applied.')
-    # args = parser.parse_args(argv[1:])
+    args = parser.parse_args(argv[1:])
 
-    station_id = 'A652'
-    datasources = ['L', "T"]
+    station_id = args.station_id
+    # station_id = "A602"
+    datasources = ["T"]
     # num_neighbors = 0
     # subsampling_procedure = args.subsampling_procedure
 

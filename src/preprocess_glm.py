@@ -20,6 +20,30 @@ station_ids_for_goes16 = {
         "s_lat": -23.083,
         'w_lon': -43.733,
         'e_lon': -42.933
+        },
+    "A602": {
+        "n_lat": -23.000,
+        "s_lat": -23.100,
+        'e_lon': -43.400,
+        'w_lon': -43.600
+        },
+    "A621": {
+        "n_lat": -22.800,
+        "s_lat": -22.900,
+        'e_lon': -43.400,
+        'w_lon': -43.450
+        },
+    "A636": {
+        "n_lat": -22.900,
+        "s_lat": -22.950,
+        'e_lon': -43.400,
+        'w_lon': -43.450
+        },
+    "A627": {
+        "n_lat": -22.850,
+        "s_lat": -22.900,
+        'e_lon': -43.100,
+        'w_lon': -43.150
         }
     }
 
@@ -94,12 +118,12 @@ def pre_process_tpw_product(path, station_id):
     nc_files = glob.glob('*GLM-L2-LCFA*')
     nc_files = sorted(nc_files)
 
-    parquet_dir = '../../parquet_files/'
+    parquet_dir = '/home/cribeiro/atmoseer/data/parquet_files'
 
     if not os.path.exists(parquet_dir):
         os.makedirs(parquet_dir)
 
-    parquet_path = '../../parquet_files/glm_preprocessed_file_2.parquet'
+    parquet_path = f'/home/cribeiro/atmoseer/data/parquet_files/glm_{station_id}_preprocessed_file.parquet'
 
     batch_size = 1000
     total_files = len(nc_files)
@@ -137,11 +161,13 @@ def pre_process_tpw_product(path, station_id):
     return
 
 def main(argv):
-    parser = argparse.ArgumentParser(description='Preprocess GLM product station data.')
-    # parser.add_argument('-s', '--station_id', required=True, choices=INMET_STATION_CODES_RJ, help='ID of the weather station to preprocess data for.')
+    parser = argparse.ArgumentParser(description='Preprocess ABI products station data.')
+    parser.add_argument('-s', '--station_id', required=True, help='ID of the weather station to preprocess data for.')
+    args = parser.parse_args(argv[1:])
 
-    directory = 'data/goes16/glm_files_2'
-    station_id = 'A652'
+    directory = '/home/cribeiro/atmoseer/data/goes16/glm_files_new'
+
+    station_id = args.station_id
 
     print('\n***Preprocessing GLM Files***')
     pre_process_tpw_product(directory, station_id)
@@ -149,4 +175,3 @@ def main(argv):
 
 if __name__ == '__main__':
     main(sys.argv)
-

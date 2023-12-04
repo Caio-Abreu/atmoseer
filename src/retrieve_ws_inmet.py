@@ -59,9 +59,9 @@ def main(argv):
                                      description="""This script provides a simple interface for retrieving observations
                                        made by a user-provided weather station from the INMET archive.""")
     parser.add_argument("-t", "--api_token", required=True, help="INMET API token", metavar='')
-    parser.add_argument("-s", "--ws_id", required=True, help="Weather station ID", metavar='')
-    parser.add_argument("-b", "--begin_year", type=int, required=True, help="Start year", metavar='')
-    parser.add_argument("-e", "--end_year", type=int, required=True, help="End year", metavar='')
+    parser.add_argument("-s", "--station_id", required=True, help="Weather station ID", metavar='')
+    parser.add_argument("-b", "--begin", type=int, required=True, help="Start year", metavar='')
+    parser.add_argument("-e", "--end", type=int, required=True, help="End year", metavar='')
 
     args = parser.parse_args(argv[1:])
 
