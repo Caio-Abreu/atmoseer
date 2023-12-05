@@ -192,7 +192,15 @@ def generate_windowed_split(train_df, val_df, test_df, target_name, window_size)
     X_test, y_test = apply_sliding_window(test_df, target_idx, window_size)
     return X_train, y_train, X_val, y_val, X_test, y_test
 
-# TODO ver como tratar o max_event bool nos argumentos de python
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371  # Earth radius in kilometers
+    dLat = np.radians(lat2 - lat1)
+    dLon = np.radians(lon2 - lon1)
+    a = np.sin(dLat/2) * np.sin(dLat/2) + np.cos(np.radians(lat1)) * np.cos(np.radians(lat2)) * np.sin(dLon/2) * np.sin(dLon/2)
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+    distance = R * c
+    return distance
+
 def get_goes16_data_for_weather_station(df: pd.DataFrame, station_id: str, max_event: bool = False) -> pd.DataFrame:
     """
     Filters lightning event data in a DataFrame based on latitude and longitude boundaries for a specific weather station
@@ -209,10 +217,13 @@ def get_goes16_data_for_weather_station(df: pd.DataFrame, station_id: str, max_e
             specified latitude and longitude boundaries removed, and the maximum or median value of 'event_energy' for each hour.
 
     """
-    filtered_df = df.loc[
-        (df['event_lat'] >= station_ids_for_goes16[station_id]['s_lat']) & (df['event_lat'] <= station_ids_for_goes16[station_id]['n_lat']) &
-        (df['event_lon'] >= station_ids_for_goes16[station_id]['w_lon']) & (df['event_lon'] <= station_ids_for_goes16[station_id]['e_lon'])
-    ]
+    station_lat = station_ids_for_goes16[station_id]["latitude"]
+    station_lon = station_ids_for_goes16[station_id]["longitude"]
+
+    # Define a radius (in kilometers) for filtering
+    radius_km = 10  # Example: 10 kilometers
+    
+    filtered_df = df[df.apply(lambda row: haversine(station_lat, station_lon, row['event_lat'], row['event_lon']) <= radius_km, axis=1)]
 
     filtered_df = util.min_max_normalize(filtered_df)
 
@@ -225,15 +236,27 @@ def get_goes16_data_for_weather_station(df: pd.DataFrame, station_id: str, max_e
 
     return result_df
 
-# TODO Transformar em variavel global
 station_ids_for_goes16 = {
     "A652": {
-        "name": "forte de copacabana",
-        "n_lat": -22.717,
-        "s_lat": -23.083,
-        'w_lon': -43.733,
-        'e_lon': -42.933
-        }
+        "latitude": -22.98833333,
+        "longitude": -43.19055555
+        },
+    "A636": {
+        "latitude": -22.93999999,
+        "longitude": -43.40277777
+    },
+    "A621": {
+        "latitude": -22.86138888,
+        "longitude": -43.41138888
+    },
+    "A602": {
+        "latitude": -23.05027777,
+        "longitude": -43.59555555
+    },
+    "A627": {
+        "latitude": -22.86749999,
+        "longitude": -43.10194444
+    }
     }
 
 def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_source: bool, join_lightning_data_source: bool, subsampling_procedure: str, 
@@ -551,17 +574,17 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
     logging.info('Done!')
 
 def main(argv):
-    parser = argparse.ArgumentParser(
-        description="""This script builds the train/val/test datasets for a given weather station, by using the user-specified data sources.""")
-    parser.add_argument('-s', '--station_id', type=str, required=True, help='station id')
-    # parser.add_argument('-d', '--datasources', type=str, help='data source spec')
-    # parser.add_argument('-n', '--num_neighbors', type=int, default = 0, help='number of neighbors')
-    # parser.add_argument('-sp', '--subsampling_procedure', type=str, default='NONE', help='Subsampling procedure do be applied.')
-    args = parser.parse_args(argv[1:])
+    # parser = argparse.ArgumentParser(
+    #     description="""This script builds the train/val/test datasets for a given weather station, by using the user-specified data sources.""")
+    # parser.add_argument('-s', '--station_id', type=str, required=True, help='station id')
+    # # parser.add_argument('-d', '--datasources', type=str, help='data source spec')
+    # # parser.add_argument('-n', '--num_neighbors', type=int, default = 0, help='number of neighbors')
+    # # parser.add_argument('-sp', '--subsampling_procedure', type=str, default='NONE', help='Subsampling procedure do be applied.')
+    # args = parser.parse_args(argv[1:])
 
-    station_id = args.station_id
-    # station_id = "A602"
-    datasources = ["T"]
+    # station_id = args.station_id
+    station_id = "A621"
+    datasources = ["L"]
     # num_neighbors = 0
     # subsampling_procedure = args.subsampling_procedure
 
