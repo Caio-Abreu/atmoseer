@@ -1,7 +1,6 @@
 from netCDF4 import Dataset
 import os
 import numpy as np
-import time
 import glob
 import pandas as pd
 import pyarrow.parquet as pq
@@ -15,55 +14,52 @@ from util import *
 
 station_ids_for_goes16 = {
     "A652": {
-        "name": "forte de copacabana",
-        "n_lat": -22.717,
-        "s_lat": -23.083,
-        'w_lon': -43.733,
-        'e_lon': -42.933
-        },
-    "A602": {
-        "n_lat": -23.000,
-        "s_lat": -23.100,
-        'e_lon': -43.400,
-        'w_lon': -43.600
-        },
-    "A621": {
-        "n_lat": -22.800,
-        "s_lat": -22.900,
-        'e_lon': -43.400,
-        'w_lon': -43.450
+        "latitude": -22.98833333,
+        "longitude": -43.19055555
         },
     "A636": {
-        "n_lat": -22.900,
-        "s_lat": -22.950,
-        'e_lon': -43.400,
-        'w_lon': -43.450
-        },
+        "latitude": -22.93999999,
+        "longitude": -43.40277777
+    },
+    "A621": {
+        "latitude": -22.86138888,
+        "longitude": -43.41138888
+    },
+    "A602": {
+        "latitude": -23.05027777,
+        "longitude": -43.59555555
+    },
     "A627": {
-        "n_lat": -22.850,
-        "s_lat": -22.900,
-        'e_lon': -43.100,
-        'w_lon': -43.150
-        }
+        "latitude": -22.86749999,
+        "longitude": -43.10194444
+    }
     }
 
-# Latitude and Longitude of RJ
-def filter_coordinates(ds, station_id):
-  """
-    Filter lightning event data in an xarray Dataset based on latitude and longitude boundaries.
+def haversine(lat1, lon1, lat2, lon2):
+    """
+    Calculate the great circle distance between two points on the earth.
 
-    Args:
-        ds (xarray.Dataset): Dataset containing lightning event data with variables `event_energy`, `event_lat`, and `event_lon`.
-        station_id (str): Station string
+    This function computes the distance using the Haversine formula, which is an equation giving the shortest distance between any two points on the surface of a sphere. 
+
+    Parameters:
+    lat1 (float): Latitude of the first point in decimal degrees.
+    lon1 (float): Longitude of the first point in decimal degrees.
+    lat2 (float): Latitude of the second point in decimal degrees.
+    lon2 (float): Longitude of the second point in decimal degrees.
 
     Returns:
-        xarray.Dataset: A new dataset with the same variables as `ds`, but with lightning events outside of the specified latitude and longitude boundaries removed.
-  """
-  # Create a mask based on your conditions
-  return ds['event_energy'].where(
-        (ds['event_lat'] >= station_ids_for_goes16[station_id]['s_lat']) & (ds['event_lat'] <= station_ids_for_goes16[station_id]['n_lat']) &
-        (ds['event_lon'] >= station_ids_for_goes16[station_id]['w_lon']) & (ds['event_lon'] <= station_ids_for_goes16[station_id]['e_lon']),
-      drop=True)
+    float: Distance between the two points in kilometers.
+
+    Note:
+    The radius of the Earth is assumed to be 6371 kilometers.
+    """
+    R = 6371  # Earth radius in kilometers
+    dLat = np.radians(lat2 - lat1)
+    dLon = np.radians(lon2 - lon1)
+    a = np.sin(dLat/2) * np.sin(dLat/2) + np.cos(np.radians(lat1)) * np.cos(np.radians(lat2)) * np.sin(dLon/2) * np.sin(dLon/2)
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+    distance = R * c
+    return distance
 
 
 def read_and_process_files(files, station_id, g16_pre_process_data_file):
@@ -78,15 +74,18 @@ def read_and_process_files(files, station_id, g16_pre_process_data_file):
         g16_pre_process_data_file (list): list with file pre processed
     """
     g16_data_file = []
+    station_lat = station_ids_for_goes16[station_id]["latitude"]
+    station_lon = station_ids_for_goes16[station_id]["longitude"]
+    # Define a radius (in kilometers) for filtering
+    radius_km = 10
     for i in range(0, len(files)):
         try:
             nc_indx = i
             g16_data = files[nc_indx]
             g16_data_file.append(g16_data)
-            # ds = Dataset('your_netcdf_file.nc', 'r')
             ds = xr.open_dataset(g16_data_file[i], cache=False, )
-            ds = filter_coordinates(ds, station_id)
             df = ds.to_dataframe()
+            df = df[df.apply(lambda row: haversine(station_lat, station_lon, row['event_lat'], row['event_lon']) <= radius_km, axis=1)]
             df['event_time_offset'] = df['event_time_offset'].astype('datetime64[us]')
             g16_pre_process_data_file['Datetime'].extend(df['event_time_offset'])
             g16_pre_process_data_file['event_energy'].extend(df['event_energy'])
@@ -118,12 +117,12 @@ def pre_process_tpw_product(path, station_id):
     nc_files = glob.glob('*GLM-L2-LCFA*')
     nc_files = sorted(nc_files)
 
-    parquet_dir = '/home/cribeiro/atmoseer/data/parquet_files'
+    parquet_dir = 'data/parquet_files'
 
     if not os.path.exists(parquet_dir):
         os.makedirs(parquet_dir)
 
-    parquet_path = f'/home/cribeiro/atmoseer/data/parquet_files/glm_{station_id}_preprocessed_file.parquet'
+    parquet_path = f'data/parquet_files/glm_{station_id}_preprocessed_file.parquet'
 
     batch_size = 1000
     total_files = len(nc_files)
@@ -165,7 +164,7 @@ def main(argv):
     parser.add_argument('-s', '--station_id', required=True, help='ID of the weather station to preprocess data for.')
     args = parser.parse_args(argv[1:])
 
-    directory = '/home/cribeiro/atmoseer/data/goes16/glm_files_new'
+    directory = 'data/goes16/glm_files'
 
     station_id = args.station_id
 

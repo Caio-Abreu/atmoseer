@@ -1,7 +1,6 @@
 import pandas as pd
-import sys, getopt
-from datetime import datetime
-from util import is_posintstring
+import sys
+import argparse
 import globals
 import s3fs
 import xarray as xr
@@ -30,7 +29,7 @@ def download_file(files):
     
     def process_file(file):
         print(f"Reading file: {file}")
-        filename = f"data/goes16/glm_files_2/{file.split('/')[-1]}"
+        filename = f"data/goes16/glm_files/{file.split('/')[-1]}"
         try:
             fs.get(file, filename)
         except Exception as e:
@@ -40,23 +39,27 @@ def download_file(files):
         executor.map(process_file, files)
 
 
-def import_data(station_code, initial_year, final_year):
+def import_data(initial_year, final_year):
     """
-    Downloads and saves GOES-16 data files from Amazon S3 for a given station code and time period.
+    Downloads and saves GOES-16 (Geostationary Operational Environmental Satellite) data files from the Amazon S3 bucket for a specified time period.
+
+    This function targets the 'noaa-goes16' S3 bucket, specifically accessing the GLM-L2-LCFA (Geostationary Lightning Mapper - Level 2 Lightning Detection) dataset. 
+    It downloads data for every day between the initial and final years specified, covering all hours of each day.
+
+    The data is organized in a multiband format and follows the structure: <Product>/<Year>/<Day of Year>/<Hour>/<Filename>.
 
     Args:
-        station_code (str): The station code to download data for.
-        initial_year (int): The initial year of the time period to download data for.
-        final_year (int): The final year of the time period to download data for.
+        initial_year (int): The initial year of the time period for which data is to be downloaded. The data for this year starts from January 1st.
+        final_year (int): The final year of the time period for which data is to be downloaded. The data for this year includes up to December 31st.
 
     Returns:
-        None
+        None. The function saves the downloaded files to a specified location (not defined in this docstring).
 
-    This function first reads a CSV file with relevant dates to download data for, then constructs a list of
-    file paths for the requested station code and time period using these dates. The files are then downloaded
-    using a thread pool executor for parallel processing.
-
-    Note: This function assumes that the relevant data files are stored in the Amazon S3 bucket 'noaa-goes16'.
+    Note: 
+    - This function requires a pre-established connection to Amazon S3 and appropriate permissions to access the 'noaa-goes16' bucket.
+    - It assumes the GOES-16 data is in the correct format and available for the entire range from the initial_year to the final_year.
+    - Ensure sufficient storage space and network bandwidth as the dataset might be large, especially for longer time periods.
+    - The function handles data for 24 hours each day, using a 0-23 hour format.
     """
     # Get files of GOES-16 data (multiband format) on multiple dates
     # format: <Product>/<Year>/<Day of Year>/<Hour>/<Filename>
@@ -78,43 +81,17 @@ def import_data(station_code, initial_year, final_year):
     download_file(files)
 
 def main(argv):
+    parser = argparse.ArgumentParser(description='Downlaod GLM files')
+    parser.add_argument('-b', '--start', required=True, help='Start year to get data')
+    parser.add_argument('-e', '--end', required=True, help='End year to get data')
+    args = parser.parse_args(argv[1:])
 
-    start_goes_16 = 2020
+    start_year = args.start
+    end_year = args.end
 
-    # help_message = "{0} -s <station_id> -b <begin> -e <end>".format(argv[0])
-    
-    # try:
-    #     opts, args = getopt.getopt(argv[1:], "hs:b:e:t:", ["help", "station=", "begin=", "end="])
-    # except:
-    #     print(help_message)
-    #     sys.exit(2)
-    
-    # for opt, arg in opts:
-    #     if opt in ("-h", "--help"):
-    #         print(help_message)
-    #         sys.exit(2)
-    #     # elif opt in ("-s", "--station"):
-    #     #     station_code = arg
-    #     #     if not ((station_code == "all") or (station_code in INMET_STATION_CODES_RJ)):
-    #     #         print(help_message)
-    #     #         sys.exit(2)
-    #     elif opt in ("-b", "--begin"):
-    #         if not is_posintstring(arg):
-    #             sys.exit("Argument start_year must be an integer. Exit.")
-    #         start_year = int(arg)
-    #     elif opt in ("-e", "--end"):
-    #         if not is_posintstring(arg):
-    #             sys.exit("Argument end_year must be an integer. Exit.")
-    #         end_year = int(arg)
+    assert (start_year <= end_year)
 
-    # assert (station_code is not None) and (station_code != '')
-    # assert (start_year <= end_year) and (start_year >= start_goes_16)
-
-    station_code = 'copacabana'
-    start_year = 2020
-    end_year = 2023
-
-    import_data(station_code, start_year, end_year)
+    import_data(start_year, end_year)
 
 
 if __name__ == "__main__":
