@@ -192,16 +192,7 @@ def generate_windowed_split(train_df, val_df, test_df, target_name, window_size)
     X_test, y_test = apply_sliding_window(test_df, target_idx, window_size)
     return X_train, y_train, X_val, y_val, X_test, y_test
 
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371  # Earth radius in kilometers
-    dLat = np.radians(lat2 - lat1)
-    dLon = np.radians(lon2 - lon1)
-    a = np.sin(dLat/2) * np.sin(dLat/2) + np.cos(np.radians(lat1)) * np.cos(np.radians(lat2)) * np.sin(dLon/2) * np.sin(dLon/2)
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
-    distance = R * c
-    return distance
-
-def get_goes16_data_for_weather_station(df: pd.DataFrame, station_id: str, max_event: bool = False) -> pd.DataFrame:
+def get_goes16_data_for_weather_station(df: pd.DataFrame, max_event: bool = False) -> pd.DataFrame:
     """
     Filters lightning event data in a DataFrame based on latitude and longitude boundaries for a specific weather station
     and calculates the maximum or median value of the 'event_energy' column on an hourly basis.
@@ -217,15 +208,8 @@ def get_goes16_data_for_weather_station(df: pd.DataFrame, station_id: str, max_e
             specified latitude and longitude boundaries removed, and the maximum or median value of 'event_energy' for each hour.
 
     """
-    station_lat = station_ids_for_goes16[station_id]["latitude"]
-    station_lon = station_ids_for_goes16[station_id]["longitude"]
 
-    # Define a radius (in kilometers) for filtering
-    radius_km = 10  # Example: 10 kilometers
-    
-    filtered_df = df[df.apply(lambda row: haversine(station_lat, station_lon, row['event_lat'], row['event_lon']) <= radius_km, axis=1)]
-
-    filtered_df = util.min_max_normalize(filtered_df)
+    filtered_df = util.min_max_normalize(df)
 
     result_df = filtered_df[["event_energy"]]
 
@@ -378,8 +362,8 @@ def build_datasets(station_id: str, join_AS_data_source: bool, join_NWP_data_sou
 
     if join_lightning_data_source:
         print(f"Loading GLM (Goes 16) data near the weather station {station_id}...", end= "")
-        df_lightning = pd.read_parquet('data/ws/merged_file_preprocessed.parquet.gzip')
-        df_lightning_filtered = get_goes16_data_for_weather_station(df_lightning, station_id)
+        df_lightning = pd.read_parquet(f'data/parquet_files/glm_{station_id}_preprocessed_file.parquet')
+        df_lightning_filtered = get_goes16_data_for_weather_station(df_lightning)
         print(df_lightning_filtered.isnull().sum())
         df_lightning_filtered.fillna(method="bfill", inplace=True)
         assert (not df_lightning_filtered.isnull().values.any().any())
