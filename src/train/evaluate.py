@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, matthews_corrcoef
 import pandas as pd
 import sklearn.metrics as skl
 from rainfall import get_events_per_level, value_to_level
@@ -24,6 +24,7 @@ def export_confusion_matrix_to_latex(y_true, y_pred, prediction_task):
             index=['NORAIN', 'RAIN'],
             columns=['NORAIN', 'RAIN'],
         )
+        matthews = matthews_corrcoef(y_true, y_pred)
     elif prediction_task == rp.ForecastingTask.ORDINAL_CLASSIFICATION:
         df = pd.DataFrame(
             confusion_matrix(y_true, y_pred, labels=[0, 1, 2, 3, 4]),
@@ -32,6 +33,7 @@ def export_confusion_matrix_to_latex(y_true, y_pred, prediction_task):
         )
     df.index.name = 'true($\\downarrow$)/pred($\\rightarrow$)'
     print(df.style.to_latex(hrules=True))
+    print(f"Coefficient of {matthews}")
 
 
 def export_results_to_latex(y_true, y_pred):
